@@ -1,6 +1,6 @@
 # Convert::BER.pm
 #
-# Copyright (c) 1995-8 Graham Barr <gbarr@pobox.com>. All rights reserved.
+# Copyright (c) 1995-1999 Graham Barr <gbarr@pobox.com>. All rights reserved.
 # This program is free software; you can redistribute it and/or
 # modify it under the same terms as Perl itself.
 
@@ -12,7 +12,7 @@ use strict;
 use vars qw($VERSION @ISA @EXPORT_OK);
 
 BEGIN {
-    $VERSION = "1.25";
+    $VERSION = "1.26";
 
     @ISA = qw(Exporter);
     
@@ -122,6 +122,7 @@ INIT: {
     [ ANY          => undef, undef ],
     [ CONSTRUCTED  => undef, undef ],
     [ OPTIONAL     => undef, undef ],
+    [ CHOICE       => undef, undef ],
 
     ##
     ## Primitive operators
@@ -304,21 +305,21 @@ sub pack_tag {
 
     # small tag number are more common, so check $tag size in reverse order
     unless($tag & ~0xff) {
-	$ber->[ 0 ] .= chr( $tag );
+	$ber->[ Convert::BER::_BUFFER() ] .= chr( $tag );
 	return 1;
     }
 
     unless($tag & ~0xffff) {
-	$ber->[ 0 ] .= CORE::pack("n",$tag);
+	$ber->[ Convert::BER::_BUFFER() ] .= CORE::pack("n",$tag);
 	return 2;
     }
 
     unless($tag & ~0xffffff) {
-	$ber->[ 0 ] .= CORE::pack("nc",($tag >> 8),$tag);
+	$ber->[ Convert::BER::_BUFFER() ] .= CORE::pack("nc",($tag >> 8),$tag);
 	return 3;
     }
 
-    $ber->[ 0 ] .= CORE::pack("N",$tag);
+    $ber->[ Convert::BER::_BUFFER() ] .= CORE::pack("N",$tag);
     return 4;
 }
 
@@ -387,7 +388,7 @@ sub unpack_length {
 
 	$pos += $len;
 
-	$len = CORE::unpack("N",$tmp);
+	$len = $len ? CORE::unpack("N",$tmp) : -1;
     }
 
     $ber->[ Convert::BER::_POS() ] = $pos;
@@ -514,6 +515,10 @@ sub dump {
     my $pos = $ber->[ Convert::BER::_POS() ];
     my $len = Convert::BER::unpack_length($ber);
 
+    if($tag == 0 && $len == 0) {
+      $seqend[0] = 0;
+      redo;
+    }
     printf $fmt. " %02X %4d: %s",$start,$tag,$len,$indent;
 
     my $label = $type{sprintf("%02X",$tag & ~0x20)}
@@ -523,7 +528,12 @@ sub dump {
 
     if ($tag & BER_CONSTRUCTOR) {
       print " {\n";
-      unshift(@seqend, $ber->[ Convert::BER::_POS() ] + $len);
+      if($len < 0) {
+          unshift(@seqend, ~(1<<31));
+      }
+      else {
+          unshift(@seqend, $ber->[ Convert::BER::_POS() ] + $len);
+      }
       $indent .= "  ";
       next;
     }
@@ -757,6 +767,7 @@ TAG:
 sub read {
     my $ber = shift;
     my $io  = shift;
+    my $indef = shift;
 
     # We need to read one packet, and exactly only one packet.
     # So we have to read the first few bytes one at a time, until
@@ -764,16 +775,19 @@ sub read {
     # how many more bytes to read
 
     $ber = $ber->new unless ref($ber);
-    $ber->[ _BUFFER() ] = "";
+    $ber->[ _BUFFER() ] = "" unless $indef;
+
+    my $pos = CORE::length($ber->[ _BUFFER() ]);
+    my $start = $pos;
 
     # The first byte is the tag
-    sysread($io,$ber->[ _BUFFER() ],1) or
+    sysread($io,$ber->[ _BUFFER() ],1,$pos++) or
 	goto READ_ERR;
 
+#    print STDERR "-"x80,"\n";
 #    print STDERR CORE::unpack("H*",$ber->[ _BUFFER() ]),"\n";
 
-    my $ch = CORE::unpack("C",$ber->[ _BUFFER() ]);
-    my $pos = 1;
+    my $ch = ord(substr($ber->[ _BUFFER() ],-1));
 
     # Tag may be multi-byte
     if(($ch & 0x1f) == 0x1f) {
@@ -781,7 +795,7 @@ sub read {
 	    sysread($io, $ber->[ _BUFFER() ], 1, $pos++) or
 		goto READ_ERR;
 
-	    $ch = CORE::unpack("C",substr($ber->[ _BUFFER() ],-1));
+	    $ch = ord(substr($ber->[ _BUFFER() ],-1));
 
 	} while($ch & 0x80);
     }
@@ -794,11 +808,25 @@ sub read {
 
 #    print STDERR CORE::unpack("H*",$ber->[ _BUFFER() ]),"\n";
 
-    $ch = CORE::unpack("C",substr($ber->[ _BUFFER() ],-1));
+    $ch = ord(substr($ber->[ _BUFFER() ],-1));
+#    print STDERR CORE::unpack("H*",substr($ber->[ _BUFFER() ],-1))," $ch\n";
 
     # May be a multi-byte length
     if($ch & 0x80) {
 	my $len = $ch & 0x7f;
+	unless ($len) {
+#    print STDERR CORE::unpack("H*",$ber->[ _BUFFER() ]),"\n";
+	    # OK we have an indefinate length
+	    while(1) {
+		Convert::BER::read($ber,$io,1);
+		my $p = CORE::length($ber->[ _BUFFER() ]);
+		if(($p - $pos) == 2 && substr($ber->[ _BUFFER() ],-2) eq "\0\0") {
+#    print STDERR CORE::unpack("H*",$ber->[ _BUFFER() ]),"\n","-"x80,"\n";
+		    return $ber;
+		}
+		$pos = $p;
+	    }
+	}
 	while($len) {
 	    my $n = sysread($io, $ber->[ _BUFFER() ], $len, $pos) or
 		goto READ_ERR;
@@ -812,11 +840,11 @@ sub read {
     # We can now unpack a tage and a length to determine how many more
     # bytes to read
 
-    $ber->[ _POS() ] = 0;
+    $ber->[ _POS() ] = $start;
     unpack_tag($ber);
     my $len = unpack_length($ber);
 
-    while($len) {
+    while($len > 0) {
 	my $got;
 
 	goto READ_ERR
@@ -828,6 +856,7 @@ sub read {
     # Reset pos back to the beginning.
     $ber->[ _POS() ] = 0;
 
+#    print STDERR CORE::unpack("H*",$ber->[ _BUFFER() ]),"\n";
     return $ber;
 
 READ_ERR:
@@ -894,7 +923,10 @@ sub recv {
 				   unpack_tag($ber);
 				   unpack_length($ber)
 				       + $ber->[ _POS() ];
-			       })) {
+			       })
+		# unpack_length will return -1 for unknown length
+		&& $len >= $ber->[ _POS() ]) {
+
 		$n = $len;
 		last;
 	    }
@@ -1176,7 +1208,7 @@ sub unpack {
 	goto &unpack_bigint
 	    if UNIVERSAL::isa($$arg,'Math::BigInt');
 
-	goto unpack_biginteger
+	goto &unpack_biginteger
 	    if UNIVERSAL::isa($$arg,'Math::BigInteger');
     }
 
@@ -1437,15 +1469,31 @@ sub pack_array {
         push @newarg, $c;
     }
 
+    shift @newarg if (@newarg & 1);
+
     Convert::BER::_encode($ber,\@newarg);
 }
 
 sub unpack_array {
     my($self,$ber,$arg) = @_;
+    my($yes,$ref);
     my $pos = $ber->[ Convert::BER::_POS() ];
 
-    eval { Convert::BER::_decode($ber,$arg) } or
+    if(@$arg & 1) {
+	$ref = [ @$arg ];
+	$yes = shift @$ref;
+    }
+    else {
+        $ref = $arg;
+    }
+
+    if (eval { Convert::BER::_decode($ber,$ref) }) {
+	$$yes = 1 if ref($yes);
+    }
+    else {
+	$$yes = undef if ref($yes);
 	$ber->[ Convert::BER::_POS() ] = $pos;
+    }
 
     1;
 }
@@ -1760,5 +1808,54 @@ sub unpack {
     }
 }
 
+package Convert::BER::CHOICE;
+
+sub pack_array {
+    my($self,$ber,$arg) = @_;
+    my $n = $arg->[0];
+
+    if(defined($n)) {
+	my $i = ($n * 2) + 2;
+	die "Bad CHOICE index $n" if $n < 0 || $i > @$arg;
+	$ber->_encode([$arg->[$i-1], $arg->[$i]]);
+    }
+    1;
+}
+
+sub unpack_array {
+    my($self,$ber,$arg) = @_;
+    my($i,$m,$err);
+
+    $m = @$arg;
+    my $want = Convert::BER::tag($ber);
+
+    for($i = 1 ; $i < $m ; $i += 2) {
+      my $tag;
+      my $type = $arg->[$i];
+
+      ($type,$tag) = @$type
+	  if(ref($type) eq 'ARRAY');
+
+      my $can = UNIVERSAL::can($ber,'_' . $type);
+
+      die "Unknown element '$type'"
+	  unless $can;
+
+      my $data = &$can();
+
+      $tag = $data->[ Convert::BER::_TAG() ]
+	  unless defined $tag;
+
+      next unless $tag == $want;
+      
+      if ( eval { Convert::BER::_decode($ber,[@{$arg}[$i,$i+1]]) }) {
+	my $choice = $arg->[0];
+	$$choice = ($i - 1) >> 1;
+	return 1;
+      }
+      $err = $@ if $@;
+    }
+    die ($err || sprintf("Cannot decode CHOICE, found tag 0x%X\n",$want));
+}
 
 1;

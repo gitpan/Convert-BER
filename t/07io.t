@@ -47,6 +47,7 @@ if( require IO::Socket ) {
   use Socket;
   my $src = IO::Socket::INET->new(Proto => 'udp');
   my $dst = IO::Socket::INET->new(Proto => 'udp');
+  bind($dst, pack_sockaddr_in(0, INADDR_ANY));
   my $host = $dst->sockhost eq '0.0.0.0' ? '127.0.0.1' : $dst->sockhost;
   my $addr = pack_sockaddr_in($dst->sockport, inet_aton($host));
   $ber->send($src,$addr) or print "not ";

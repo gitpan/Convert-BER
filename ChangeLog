@@ -1,3 +1,23 @@
+Change 279 on 1999/03/26 by <gbarr@pobox.com> (Graham Barr)
+
+	Applied a readability patch from Gisle Aas
+
+Change 278 on 1999/03/26 by <gbarr@pobox.com> (Graham Barr)
+
+	The start of support for indefinite length encoding.
+
+Change 277 on 1999/03/26 by <gbarr@pobox.com> (Graham Barr)
+
+	Add bind() call to t/07io.t to prevent hangs on some systems
+
+Change 251 on 1999/02/09 by <gbarr@pobox.com> (Graham Barr)
+
+	Added optional control argument to OPTIONAL
+
+Change 247 on 1999/02/05 by <gbarr@pobox.com> (Graham Barr)
+
+	Added CHOICE
+
 Change 246 on 1999/02/04 by <gbarr@pobox.com> (Graham Barr)
 
 	fixed read() to loop on sysread() until the correct number
