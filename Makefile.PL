@@ -1,10 +1,9 @@
 # This -*- perl -*- script makes the Makefile
-# $Id: //depot/ber/Makefile.PL#5 $
+# $Id: //depot/ber/Makefile.PL#6 $
 
 use 5.004;
 use ExtUtils::MakeMaker;
 
-my @ppd;
 
 if ($] >= 5.00503) {
   @ppd = (
@@ -19,15 +18,5 @@ WriteMakefile(
   @ppd
 );
 
-sub MY::postamble {
-
-  return '' unless $] >= 5.00503;
-
-<<'ESQ';
-
-dist : ppd
-
-ESQ
-}
 
 

@@ -1,3 +1,20 @@
+Change 739 on 2002/08/19 by <gbarr@pobox.com> (Graham Barr)
+
+	Dont generate PPD
+
+Change 738 on 2002/08/19 by <gbarr@pobox.com> (Graham Barr)
+
+	Dont depend on hash order in t/03seqof.t and try both possible
+	results
+
+Change 613 on 2001/04/10 by <gbarr@pobox.com> (Graham Barr)
+
+	Fix test for 5.7 (test result depends on hash order)
+
+Change 500 on 2000/04/30 by <gbarr@pobox.com> (Graham Barr)
+
+	Release 1.31
+
 Change 499 on 2000/04/30 by <gbarr@pobox.com> (Graham Barr)
 
 	* Patch for tags >= 0x1f and new tests
