@@ -12,7 +12,7 @@ use strict;
 use vars qw($VERSION @ISA @EXPORT_OK);
 
 BEGIN {
-    $VERSION = "1.21";
+    $VERSION = "1.23";
 
     @ISA = qw(Exporter);
     
@@ -193,7 +193,7 @@ sub define {
 	    *{$subpkg . "::tag"} = sub { $tag };
 	}
 
-	push(@{$pkg . "::EXPORT_OK"}, '$' . $name);
+	push(@{$pkg . "::EXPORT_OK"}, '$' . $name, $name);
 
 	*{$pkg . "::"  . $name} = \$name;
 
@@ -201,6 +201,12 @@ sub define {
 		     map { $subpkg->can($_) }
 		         qw(pack pack_array unpack unpack_array)
 		   );
+
+	{
+	    my $const = $tag;
+	    *{$pkg . "::" . $name} = sub () { $const }
+		unless defined &{$pkg . "::" . $name};
+	}
 
 	*{$pkg . "::_" . $name} = sub { \@data };
     }
@@ -365,7 +371,10 @@ sub error {
 sub tag {
     my $ber = shift;
     my $pos = $ber->[ Convert::BER::_POS() ];
-    my $tag = eval { unpack_tag($ber) } or return undef;
+    my $tag = eval {
+	local($SIG{'__DIE__'});
+	unpack_tag($ber)
+    } or return undef;
     $ber->[ Convert::BER::_POS() ] = $pos;
     $tag;
 }
@@ -557,6 +566,7 @@ sub hexdump {
 
 sub encode {
     my $ber = shift;
+    local($SIG{'__DIE__'});
 
     $ber->[ Convert::BER::_INDEX() ] = [];
 
@@ -625,6 +635,7 @@ sub _encode {
 sub decode {
     my $ber = shift;
     my $pos = $ber->[ Convert::BER::_POS() ];
+    local($SIG{'__DIE__'});
 
     $ber->[ Convert::BER::_INDEX() ] = [];
 
@@ -709,6 +720,7 @@ TAG:
 sub read {
     my $ber = shift;
     my $io  = shift;
+    local($SIG{'__DIE__'});
 
     $ber = $ber->new unless ref($ber);
     $ber->[ Convert::BER::_BUFFER() ] = "";
@@ -761,6 +773,7 @@ sub read {
 sub write {
     my $ber = shift;
     my $io = shift;
+    local($SIG{'__DIE__'});
 
     my $togo = CORE::length($ber->[ Convert::BER::_BUFFER() ]);
     my $pos = 0;

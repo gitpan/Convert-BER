@@ -1,3 +1,14 @@
+*** Release 1.23
+
+Change 233 on 1998/11/09 by <gbarr@pobox.com> (Graham Barr)
+
+	Now created constant subs in the sub-class package for the tag
+	values and adds them to EXPORT_OK
+
+Change 227 on 1998/11/04 by <gbarr@pobox.com> (Graham Barr)
+
+	- local($SIG{__DIE__}) when using eval/die
+
 *** Release 1.21
 
 Change 205 on 1998/10/21 by <gbarr@pobox.com> (Graham Barr)
