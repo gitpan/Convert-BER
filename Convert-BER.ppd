@@ -1,4 +1,4 @@
-<SOFTPKG NAME="Convert-BER" VERSION="1,29,0,0">
+<SOFTPKG NAME="Convert-BER" VERSION="1,30,0,0">
 	<TITLE>Convert-BER</TITLE>
 	<ABSTRACT>Encode/decoing of ASN.1 usinf BER rules</ABSTRACT>
 	<AUTHOR>Graham Barr &lt;gbarr@pobox.com&gt;</AUTHOR>

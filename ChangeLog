@@ -1,3 +1,11 @@
+Change 492 on 2000/04/18 by <gbarr@pobox.com> (Graham Barr)
+
+	added implementation for ber_tag()
+
+Change 463 on 2000/03/29 by <gbarr@pobox.com> (Graham Barr)
+
+	Release 1.29
+
 Change 462 on 2000/03/29 by <gbarr@pobox.com> (Graham Barr)
 
 	added C<use bytes> for perl 5.6 and later

@@ -16,7 +16,7 @@ BEGIN {
 	require bytes; 'bytes'->import;
     }
 
-    $VERSION = "1.29";
+    $VERSION = "1.30";
 
     @ISA = qw(Exporter);
     
@@ -42,6 +42,8 @@ BEGIN {
 	BER_LONG_LEN
 	BER_EXTENSION_ID
 	BER_BIT
+
+	ber_tag
     );
 
     # 5.003 does not have UNIVERSAL::can
@@ -253,6 +255,29 @@ sub define {
 
 # Now we have done the naughty stuff, make sure we do no more
 use strict;
+
+sub ber_tag {
+  my($t,$e) = @_;
+  $e ||= 0; # unsigned;
+
+  if($e < 30) {
+    return (($t & 0xe0) | $e);
+  }
+
+  $t = ($t | 0x1f) & 0xff;
+  if ($e & 0xffe00000) {
+    die "Too big";
+  }
+  my @t = ();
+
+  push(@t, ($b >> 14) | 0x80)
+    if ($b = ($e & 0x001fc000));
+
+  push(@t, ($b >> 7) | 0x80)
+    if ($b = ($e & 0xffffff80));
+
+  unpack("V",pack("C4",$t,@t,$e & 0x7f,0,0));
+}
 
 sub new {
     my $package = shift;
