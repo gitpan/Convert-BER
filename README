@@ -1,13 +1,7 @@
 Convert::BER is a perl object class implementation to encode
-and decode objects as described by ITU-T standard X.209
+and decode objects as described by ITU-T standard X.209 (ASN.1)
+using Basic Encoding Rules (BER)
 
-To use this package you will also need to obtain the following
-distributions from CPAN
-
-    authors/id/GBARR/Error-x.xx.tar.gz
-
-If using perl -MCPAN install Bundle::Convert::BER
-  
-Copyright (c) 1995 Graham Barr <gbarr@ti.com>. All rights reserved.
+Copyright (c) 1995-7 Graham Barr <gbarr@pobox.com>. All rights reserved.
 This program is free software; you can redistribute it and/or
 modify it under the same terms as Perl itself.

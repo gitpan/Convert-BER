@@ -6,38 +6,80 @@
 
 use Convert::BER;
 
-print "1..42\n";
+print "1..75\n";
 
-$test = 1;
+$tcount = $test = 1;
 
+sub test (&) {
+    my $sub = shift;
+    eval { $sub->() };
+
+    print "not ok ",$test++,"\n"
+        while($test < $tcount);
+
+    warn "count mismatch test=$test tcount=$tcount"
+	unless $test == $tcount;
+
+    $tcount = $test;
+}
 
 ##
-## NULL (tests 1 - 3)
+## Assumptions. I assume perl truncates values for me, check them
 ##
 
-$ber = Convert::BER->new->encode( NULL => 0 );
+$tcount += 6;
+test {
+    my $tag = 0x31323334;
 
+    print "not " unless chr($tag) eq "4";
+    	print "ok ",$test++,"\n";
+
+    print "not " unless pack("n",$tag) eq "34";
+    	print "ok ",$test++,"\n";
+
+    print "not " unless pack("nc",$tag>>8,$tag) eq "234";
+    	print "ok ",$test++,"\n";
+
+    $tag = 0x81828384;
+
+    print "not " unless ord(chr($tag)) == 0x84;
+    	print "ok ",$test++,"\n";
+
+    print "not " unless pack("n",$tag) eq pack("C*",0x83,0x84);
+    	print "ok ",$test++,"\n";
+
+    print "not " unless pack("nc",$tag>>8,$tag)  eq pack("C*",0x82,0x83,0x84);
+    	print "ok ",$test++,"\n";
+};
+
+##
+## NULL
+##
+
+$tcount += 4;
+test {
     print "# NULL\n";
 
-if($ber) {
-    print "ok ",$test++,"\n";
+    $ber = Convert::BER->new->encode( NULL => 0 ) or die;
+
+    	print "ok ",$test++,"\n";
 
     my $result = pack("C*", 0x05, 0x00);
 
-    print "not "
-	unless $ber->buffer eq $result;
-    print "ok ",$test++,"\n";
+    die unless $ber->buffer eq $result;
+
+	print "ok ",$test++,"\n";
 
     my $null = undef;
 
-    print "not "
-	unless $ber->decode(NULL => \$null) && $null;
+    $ber->decode(NULL => \$null) or die;
 
-    print "ok ",$test++,"\n";
-}
+	print "ok ",$test++,"\n";
 
-print "not ok",$test++,"\n"
-	while($test <= 3);
+    die unless $null;
+
+	print "ok ",$test++,"\n";
+};
 
 ##
 ## BOOLEAN (tests 4 - 12)
@@ -45,31 +87,34 @@ print "not ok",$test++,"\n"
 
 foreach $val (0,1,-99) {
     print "# BOOLEAN $val\n";
-    $ber = Convert::BER->new->encode( BOOLEAN => $val);
 
-    if($ber) {
-	print "ok ",$test++,"\n";
+    $tcount += 5;
+    test {
+        my $ber = Convert::BER->new->encode( BOOLEAN => $val) or die;
+
+	    print "ok ",$test++,"\n";
 
 	my $result = pack("C*", 0x01, 0x01, $val ? 0xFF : 0);
 
-	print "not "
-	    unless $ber->buffer eq $result;
+	die unless $ber->buffer eq $result;
 
-	print "ok ",$test++,"\n";
+	    print "ok ",$test++,"\n";
 
 	my $bool = undef;
 
-	print "not "
-	    unless $ber->decode( BOOLEAN => \$bool)
-	    && defined($bool)
-	    && (!$bool == !$val);
+	die unless $ber->decode( BOOLEAN => \$bool);
 
-	print "ok ",$test++,"\n";
-    }
+	    print "ok ",$test++,"\n";
+
+	die unless defined($bool);
+
+	    print "ok ",$test++,"\n";
+
+	die unless(!$bool == !$val);
+
+	    print "ok ",$test++,"\n";
+    };
 }
-
-print "not ok ",$test++,"\n"
-	while($test <= 12);
 
 ##
 ## INTEGER (tests 13 - 21)
@@ -83,32 +128,36 @@ my %INTEGER = (
 
 while(($val,$result) = each %INTEGER) {
     print "# INTEGER $val\n";
-    $ber = Convert::BER->new->encode( INTEGER => $val);
 
-    if($ber) {
-	print "ok ",$test++,"\n";
+    $tcount += 5;
 
-	print "not "
-	    unless $ber->buffer eq $result;
+    test {
+        my $ber = Convert::BER->new->encode( INTEGER => $val) or die;
 
-	print "ok ",$test++,"\n";
+	    print "ok ",$test++,"\n";
+
+	die unless $ber->buffer eq $result;
+
+	    print "ok ",$test++,"\n";
 
 	my $int = undef;
 
-	print "not "
-	    unless $ber->decode( INTEGER => \$int)
-	    && defined($int)
-	    && ($int == $val);
+	die unless $ber->decode( INTEGER => \$int);
 
-	print "ok ",$test++,"\n";
+	    print "ok ",$test++,"\n";
+
+	die unless defined($int);
+
+	    print "ok ",$test++,"\n";
+
+	die unless ($int == $val);
+
+	    print "ok ",$test++,"\n";
     }
 }
 
-print "not ok ",$test++,"\n"
-	while($test <= 21);
-
 ##
-## STRING ( tests 22 - 27)
+## STRING
 ##
 
 my %STRING = (
@@ -118,32 +167,35 @@ my %STRING = (
 
 while(($val,$result) = each %STRING) {
     print "# STRING '$val'\n";
-    $ber = Convert::BER->new->encode( STRING => $val);
 
-    if($ber) {
-	print "ok ",$test++,"\n";
+    $tcount += 5;
+    test {
+        my $ber = Convert::BER->new->encode( STRING => $val) or die;
 
-	print "not "
-	    unless $ber->buffer eq $result;
+	    print "ok ",$test++,"\n";
 
-	print "ok ",$test++,"\n";
+	die unless $ber->buffer eq $result;
+
+	    print "ok ",$test++,"\n";
 
 	my $str = undef;
 
-	print "not "
-	    unless $ber->decode( STRING => \$str)
-	    && defined($str)
-	    && ($str eq $val);
+	die unless $ber->decode( STRING => \$str);
 
-	print "ok ",$test++,"\n";
+	    print "ok ",$test++,"\n";
+
+	die unless defined($str);
+
+	    print "ok ",$test++,"\n";
+
+	die unless ($str eq $val);
+
+	    print "ok ",$test++,"\n";
     }
 }
 
-print "not ok ",$test++,"\n"
-	while($test <= 27);
-
 ##
-## OBJECT_ID (tests 28 - 33)
+## OBJECT_ID
 ##
 
 my %OBJECT_ID = (
@@ -154,24 +206,31 @@ my %OBJECT_ID = (
 
 while(($val,$result) = each %OBJECT_ID) {
     print "# OBJECT_ID $val\n";
-    $ber = Convert::BER->new->encode( OBJECT_ID => $val);
 
-    if($ber) {
-	print "ok ",$test++,"\n";
+    $tcount += 5;
 
-	print "not "
-	    unless $ber->buffer eq $result;
+    test {
+        my $ber = Convert::BER->new->encode( OBJECT_ID => $val) or die;
 
-	print "ok ",$test++,"\n";
+	    print "ok ",$test++,"\n";
+
+	die unless $ber->buffer eq $result;
+
+	    print "ok ",$test++,"\n";
 
 	my $oid = undef;
 
-	print "not "
-	    unless $ber->decode( OBJECT_ID => \$oid)
-	    && defined($oid)
-	    && ($oid eq $val);
+	die unless $ber->decode( OBJECT_ID => \$oid);
 
-	print "ok ",$test++,"\n";
+	    print "ok ",$test++,"\n";
+
+	die unless defined($oid);
+
+	    print "ok ",$test++,"\n";
+
+	die unless ($oid eq $val);
+
+	    print "ok ",$test++,"\n";
     }
 }
 
@@ -179,7 +238,7 @@ print "not ok ",$test++,"\n"
 	while($test <= 33);
 
 ##
-## ENUM (tests 34 - 42)
+## ENUM
 ##
 
 my %ENUM = (
@@ -190,27 +249,30 @@ my %ENUM = (
 
 while(($val,$result) = each %ENUM) {
     print "# ENUM $val\n";
-    $ber = Convert::BER->new->encode( ENUM => $val);
 
-    if($ber) {
-	print "ok ",$test++,"\n";
+    $tcount += 5;
 
-	print "not "
-	    unless $ber->buffer eq $result;
+    test {
+        my $ber = Convert::BER->new->encode( ENUM => $val) or die;
 
-	print "ok ",$test++,"\n";
+	    print "ok ",$test++,"\n";
+
+	die unless $ber->buffer eq $result;
+
+	    print "ok ",$test++,"\n";
 
 	my $enum = undef;
 
-	print "not "
-	    unless $ber->decode( ENUM => \$enum)
-	    && defined($enum)
-	    && ($enum == $val);
+	die unless $ber->decode( ENUM => \$enum);
 
-	print "ok ",$test++,"\n";
+	    print "ok ",$test++,"\n";
+
+	die unless defined($enum);
+
+	    print "ok ",$test++,"\n";
+
+	die unless ($enum == $val);
+
+	    print "ok ",$test++,"\n";
     }
 }
-
-print "not ok ",$test++,"\n"
-	while($test <= 42);
-

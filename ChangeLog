@@ -1,0 +1,8 @@
+Sun Nov 30 1997 <gbarr@pobox.com> (Graham Barr)
+
+	- unpack_tag was not checking that it unpacked what was expected
+
+Wed Nov  5 1997 <gbarr@pobox.com> (Graham Barr)
+
+	Updated BER.pod
+

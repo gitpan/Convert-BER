@@ -26,7 +26,7 @@ my @clean = qw(*% *.html *.b[ac]k *.old);
 push @clean, map { "*/$_" } @clean;
 
 WriteMakefile(
-    VERSION_FROM  => "lib/Convert/BER.pm",
+    VERSION_FROM  => 'BER.pm',
     NAME          => 'Convert::BER',
     'dist'        => {
 	              COMPRESS     => 'gzip -9f',

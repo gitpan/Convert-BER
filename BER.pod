@@ -1,0 +1,326 @@
+=head1 NAME
+
+Convert::BER - ASN.1 Basic Encoding Rules
+
+=head1 SYNOPSIS
+
+    use Convert::BER;
+    
+    $ber = new Convert::BER;
+    
+    $ber->encode(
+	INTEGER => 1,
+	SEQUENCE => [
+	    STRING => [ qw(a b c) ]
+	]
+    );
+    
+    $ber->decode(
+	INTEGER => \$i,
+	SEQUENCE => [
+	    STRING => \@str
+	]
+    );
+    
+    $ber->buffer("");
+    
+    $ber->encode(
+	SEQUENCE_OF => [ \%hash
+	    STRING  => sub { $_[0] },
+	    INTEGER => sub { $hash{ $_[0] } }
+	]
+    );
+    
+    $ber->decode(
+	SEQUENCE_OF => [ \$count
+	    STRING  => sub { push @keys, undef; \$keys[-1] },
+	    INTEGER => sub { push @values, undef; \$values[-1] }
+	]
+    );
+
+=head1 NOTE
+
+B<This documentation is still under construction. Convert::BER is a>
+B<a very flexable package that supports a lot of options. see the>
+B<tests in t/ for examples>
+
+=head1 DESCRIPTION
+
+C<Convert::BER> provides an OO interface to encoding and decoding
+data into packets using the ASN.1 Basic Encoding Rules (BER)
+
+=head1 METHODS
+
+=over 4
+
+=item new
+
+=item new ( BUFFER )
+
+=item new ( opList )
+
+C<new> creates a new C<Convert::BER> object.
+
+=item encode ( opList )
+
+Encode data in I<opList> appending to the data in the buffer.
+
+=item decode ( opList )
+
+Decode the data in the buffer as described by I<opList>, starting
+where the last decode finished or position set by C<pos>
+
+=item buffer ( [ BUFFER ] )
+
+Return the buffer contents. If I<BUFFER> is specified the set the buffer
+contents and reset pos to zero.
+
+=item pos ( [ POS ] )
+
+Without any arguments C<pos> returns the offset where the last decode
+finished, or the last offset set by C<pos>. If I<POS> is specified
+then I<POS> will be where the next decode starts.
+
+=back
+
+=head2 IO METHODS
+
+=over 4
+
+=item read ( IO )
+
+=item write ( IO )
+
+=item recv ( SOCK )
+
+=item send ( SOCK [, ADDR ] )
+
+=back
+
+=head1 OPLIST
+
+An I<opList> is a list of I<operator>-I<value> pairs. An operator can
+be any defined below, or any defined by a sub-class of C<Convert::BER>,
+which will probably be derived from the primitives given here.
+
+For the following operators if encoding the I<value> is the value of the
+data to be encoded, if decoding it is a reference to where the decoded
+will be put.
+
+If I<value> is a reference to a list then, for encode each item in the list
+will be encoded in turn. If decoding then as many a possible items of
+teh given type will be decoded an placed into the array, but there must be
+at least one or the whole decode will fail.
+
+If I<value> is a CODE reference, then the code will be evaluated and the
+result used. For encode the code should return either the data to be encoded
+or a reference to a list of data to be encoded. For decode the code should
+return a reference to where the decoded data should be placed or a
+reference to a list. The arguments that are passed to the code are described
+below in the C<SEQUENCE_OF> section.
+
+=over 4
+
+=item BOOLEAN
+
+=item INTEGER
+
+=item STRING
+
+=item NULL
+
+=item OBJECT_ID
+
+=item ENUM
+
+=back
+
+Other operators avaliable are
+
+=over 4
+
+=item SEQUENCE
+
+A SEQUENCE can be encoded ....
+
+=item SET
+
+A set it treated in an identical way to a SEQUENCE.
+
+=item SEQUENCE_OF
+
+=back
+
+=head1 SPECIAL OPERATORS
+
+=over 4
+
+=item BER
+
+B<Encode>: I<value> should be a C<Convert::BER> object, which will
+be inserted into the buffer
+
+B<Decode>: I<value> should be a reference to a scalar, which will
+contain a C<Convert::BER> object. This object will contain the
+remainder of the current sequence.
+
+=item ANY
+
+Like C<BER> except that when decoding only the next item is
+decoded and placed into the C<Convert::BER> object returned.
+
+=item OPTIONAL
+
+The I<value> to this operator must be a reference to an I<opList>.
+
+B<Encode>: The contents I<value> are encoded into the buffer.
+
+B<Decode>: The contents of I<value> are decoded if possible, if
+not then decode continues at the next I<operator>-I<value> pair.
+
+=back
+
+=head1 TAGS
+
+Each operator, other than the special operators, has a tag value
+associated with it. Some applications require these tag values
+to be different from the default values. C<Convert::BER> supports
+two ways of doing this. One method is to sub-class C<Convert::BER>,
+which is described in the next section. For small applications or those
+that think sub-classing is just too much then the operatorm may be
+passed an arrayref. The array must contain two elements, the first
+is the usual operator name and the second if the tag value to use, as
+shown below.
+
+    $ber->encode(
+	[ SEQUENCE => 0x34 ] => [
+	    INTEGER => 10,
+	    STRING  => "A"
+	]
+    );
+
+This will encode a sequence, with a tag value of C<0x34>, which will contain
+and integer and a string which will have thier default tag values.
+
+=head1 SUB-CLASSING
+
+For large applications where operators with non default tags are used a lot
+the above maechanism can be very erroroneous, for this porpose C<Convert::BER>
+may be sub-classed.
+
+To do this the sub-class must call a method C<define> as a static method
+on the sub-class. The arguments to C<define> is a list if arrayref's. Each
+arrayref will define one new operator. Each arrayref contains three values,
+the first is the name of the operator, the second is how the data is encoded
+and the third is the tag value. To aid with the creation of these arguments
+C<Convert::BER> exports some variables and constant subroutines.
+
+For each operator defined by C<Convert::BER>, or a C<Convert::BER> sub-class,
+a scalar variable with the same name is avaliable for import,
+for example C<$INTEGER> is avaliable from C<Convert::BER>. And any operators
+defined by a new sub-class will be avaliable for import from that class.
+One of these variables may be used as the second element of each arrayref.
+
+C<Convert::BER> also exports some constant subroutines that can be used
+to create the tag value. The subroutines exported are.
+
+	BER_BOOLEAN
+	BER_INTEGER
+	BER_BIT_STR
+	BER_OCTET_STR
+	BER_NULL
+	BER_OBJECT_ID
+	BER_SEQUENCE
+	BER_SET
+    
+	BER_UNIVERSAL
+	BER_APPLICATION
+	BER_CONTEXT
+	BER_PRIVATE
+	BER_PRIMITIVE
+	BER_CONSTRUCTOR
+
+Using this information a sub-class of Convert::BER can be created as shown
+below.
+
+    package Net::LDAP::BER;
+
+    use Convert::BER qw(/^(\$|BER_)/);
+
+    use strict;
+    use vars qw($VERSION @ISA);
+
+    @ISA = qw(Convert::BER);
+    $VERSION = "1.00";
+
+    Net::LDAP::BER->define(
+
+      # Name		Type      Tag
+      ########################################
+
+      [ REQ_UNBIND     => $NULL,
+			  BER_APPLICATION  	 	    | 0x02 ],
+    
+      [ REQ_COMPARE    => $SEQUENCE,
+			  BER_APPLICATION | BER_CONSTRUCTOR | 0x0E ],
+    
+      [ REQ_ABANDON    => $INTEGER,
+			  BER_APPLICATION  		    | 0x10 ],
+    );
+
+This will create a new class C<Net::LDAP::BER> which has three new operators
+avaliable. This class then may be used as follows
+
+    $ber = new Net::LDAP::BER;
+    
+    $ber->encode(
+	REQ_UNBIND => 0,
+	REQ_COMPARE => [
+	    REQ_ABANDON => 123,
+	]
+    );
+
+    $ber->decode(
+	REQ_UNBIND => \$var,
+	REQ_COMPARE => [
+	    REQ_ABANDON => \$num,
+	]
+    );
+
+Which will encode or decode the data using the formats and tags defined in
+the C<Net::LDAP::BER> sub-class. It also helps to make the code more readable.
+
+=head2 DEFINING NEW PACKING OPERATORS
+
+As well as defining new operators which inherit from existing operators
+it is also possible to define a new operator and how data is encoded
+and decoded. The interface for doing this is still changing but
+will be documented here when it is done. to be continued ...
+
+=head1 LIMITATIONS
+
+Convert::BER cannot support tags that contain more bits than
+can be stored in a scalar variable, typically this is 32 bits.
+
+Convert::BER cannot support items that have a packed length which cannot be
+stored in 32 bits
+
+=item TODO
+
+CONSTRUCTED operator
+
+=head1 BUGS
+
+None known, but there may be some
+
+=head1 AUTHOR
+
+Graham Barr E<lt>F<gbarr@pobox.com>E<gt>
+
+=head1 COPYRIGHT
+
+Copyright (c) 1995-8 Graham Barr. All rights reserved.
+This program is free software; you can redistribute it and/or modify it
+under the same terms as Perl itself.
+
+=cut
