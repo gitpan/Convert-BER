@@ -1,3 +1,22 @@
+*** Release 1.21
+
+Change 205 on 1998/10/21 by <gbarr@pobox.com> (Graham Barr)
+
+	dump and dumphex how accept a filehandle
+	
+	new dump sub with more readable output
+	
+	added support for BIT STRING
+
+Change 202 on 1998/10/16 by <gbarr@pobox.com> (Graham Barr)
+
+	30% speed improvement by remove use of method calls internally
+
+Change 193 on 1998/10/04 by <gbarr@pobox.com> (Graham Barr)
+
+	Convert::BER
+	- now works with 5.003
+
 Change 192 on 1998/09/26 by <gbarr@pobox.com> (Graham Barr)
 
 	- OPTIONAL can now optianlly encode, passing undef anywhere in the

@@ -139,6 +139,12 @@ Other operators avaliable are
 
 =over 4
 
+=item BIT_STRING
+
+A bit string is represented as a string of C<0>'s and C<1>'s, these sequences
+can be packed using the perl C<pack> operator and the character C<B>, but
+in doing so the number of bits will be rounded up to a multiple of 8
+
 =item SEQUENCE
 
 A SEQUENCE can be encoded ....

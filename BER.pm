@@ -6,15 +6,13 @@
 
 package Convert::BER;
 
-use 5.004;
-
 use vars qw($VERSION @ISA);
 use Exporter ();
 use strict;
 use vars qw($VERSION @ISA @EXPORT_OK);
 
 BEGIN {
-    $VERSION = "1.18";
+    $VERSION = "1.21";
 
     @ISA = qw(Exporter);
     
@@ -40,6 +38,29 @@ BEGIN {
 	BER_EXTENSION_ID
 	BER_BIT
     );
+
+    # 5.003 does not have UNIVERSAL::can
+    unless(defined &UNIVERSAL::can) {
+        *UNIVERSAL::can = sub {
+            my($obj,$meth) = @_;
+            my $pkg = ref($obj) || $obj;
+            my @pkg = ($pkg);
+            my %done;
+            while(@pkg) {
+                $pkg = shift @pkg;
+                next if exists $done{$pkg};
+                $done{$pkg} = 1;
+
+                no strict 'refs';
+
+                unshift @pkg,@{$pkg . "::ISA"}
+                    if(@{$pkg . "::ISA"});
+                return \&{$pkg . "::" . $meth}
+                    if defined(&{$pkg . "::" . $meth});
+            }
+            undef;
+        }
+    }
 }
 
 ##
@@ -77,6 +98,13 @@ sub _POS    () { 1 }
 sub _INDEX  () { 2 }
 sub _ERROR  () { 3 }
 
+sub _PACKAGE      () { 0 }
+sub _TAG          () { 1 }
+sub _PACK         () { 2 }
+sub _PACK_ARRAY   () { 3 }
+sub _UNPACK       () { 4 }
+sub _UNPACK_ARRAY () { 5 }
+
 INIT: {
   Convert::BER->define(
     ##
@@ -92,14 +120,15 @@ INIT: {
     ## Primitive operators
     ##
 
-    [ BOOLEAN     => undef, BER_UNIVERSAL | BER_PRIMITIVE   | BER_BOOLEAN   ],
-    [ INTEGER     => undef, BER_UNIVERSAL | BER_PRIMITIVE   | BER_INTEGER   ],
-    [ STRING      => undef, BER_UNIVERSAL | BER_PRIMITIVE   | BER_OCTET_STR ],
-    [ NULL        => undef, BER_UNIVERSAL | BER_PRIMITIVE   | BER_NULL	    ],
-    [ OBJECT_ID   => undef, BER_UNIVERSAL | BER_PRIMITIVE   | BER_OBJECT_ID ],
+    [ BOOLEAN     => undef, BER_UNIVERSAL | BER_PRIMITIVE   | BER_BOOLEAN    ],
+    [ INTEGER     => undef, BER_UNIVERSAL | BER_PRIMITIVE   | BER_INTEGER    ],
+    [ STRING      => undef, BER_UNIVERSAL | BER_PRIMITIVE   | BER_OCTET_STR  ],
+    [ NULL        => undef, BER_UNIVERSAL | BER_PRIMITIVE   | BER_NULL	     ],
+    [ OBJECT_ID   => undef, BER_UNIVERSAL | BER_PRIMITIVE   | BER_OBJECT_ID  ],
+    [ BIT_STRING  => undef, BER_UNIVERSAL | BER_PRIMITIVE   | BER_BIT_STR    ],
 
-    [ SEQUENCE    => undef, BER_UNIVERSAL | BER_CONSTRUCTOR | BER_SEQUENCE  ],
-    [ SEQUENCE_OF => undef, BER_UNIVERSAL | BER_CONSTRUCTOR | BER_SEQUENCE  ],
+    [ SEQUENCE    => undef, BER_UNIVERSAL | BER_CONSTRUCTOR | BER_SEQUENCE   ],
+    [ SEQUENCE_OF => undef, BER_UNIVERSAL | BER_CONSTRUCTOR | BER_SEQUENCE   ],
   );
 
   ##
@@ -142,9 +171,6 @@ sub define {
 	my($name,$isa,$tag) = @{ $_[0] }; shift;
 	my $subpkg = $pkg . "::" . $name;
 
-	croak("Redefinition of tag '$name'")
-		if($pkg->can('_' . $name));
-
 	croak("Bad tag name '$name'")
 		if($name =~ /\A(?:DESTROY|VERSION)\Z/);
 
@@ -152,7 +178,7 @@ sub define {
 	    my $isapkg = $pkg->can('_' . $isa) or
 		croak "Unknown BER tag type '$isa'";
 
-	    @{$subpkg . "::ISA"} = ( $isapkg->() )
+	    @{$subpkg . "::ISA"} = ( &{$isapkg}()->[ _PACKAGE ] )
 		unless @{$subpkg . "::ISA"};
 
 	    $tag = $subpkg->tag
@@ -166,10 +192,17 @@ sub define {
 	else {
 	    *{$subpkg . "::tag"} = sub { $tag };
 	}
+
 	push(@{$pkg . "::EXPORT_OK"}, '$' . $name);
 
-	*{$pkg . "::_" . $name} = sub { $subpkg };
 	*{$pkg . "::"  . $name} = \$name;
+
+	my @data = ( $subpkg, $subpkg->tag,
+		     map { $subpkg->can($_) }
+		         qw(pack pack_array unpack unpack_array)
+		   );
+
+	*{$pkg . "::_" . $name} = sub { \@data };
     }
 }
 
@@ -194,7 +227,6 @@ sub new {
 ##
 
 sub num_length {
-
     return 1 if ( ($_[0] &     0xff) == $_[0]);
     return 2 if ( ($_[0] &   0xffff) == $_[0]);
     return 3 if ( ($_[0] & 0xffffff) == $_[0]);
@@ -333,7 +365,7 @@ sub error {
 sub tag {
     my $ber = shift;
     my $pos = $ber->[ Convert::BER::_POS() ];
-    my $tag = eval { $ber->unpack_tag() } or return undef;
+    my $tag = eval { unpack_tag($ber) } or return undef;
     $ber->[ Convert::BER::_POS() ] = $pos;
     $tag;
 }
@@ -358,85 +390,165 @@ sub buffer {
 ##
 
 sub _hexdump {
-    my($buf,$lead) = @_;
+  my($fmt,$pos) = @_[1,2]; # Don't copy buffer
 
-    my @x = CORE::unpack("C*", $buf);
+  $pos ||= 0;
 
-    print "\n";
+  my $offset  = 0;
+  my $cnt     = 1 << 4;
+  my $len     = CORE::length($_[0]);
+  my $linefmt = ("%02X " x $cnt) . "%s\n";
 
-    while(@x) {
-	my @y = splice(@x,0,16);
-	print $lead;
-	$lead = " " x CORE::length($lead);
-	printf "%02X " x @y, @y;
-	printf "   " x (16 - @y)
-	    if @y != 16;
-	print " ";
-	foreach (@y) {
-	    my $ch = chr($_);
-	    $ch = "." if($_ < 32 || $_ >+ 127);
-	    print $ch;
-	}
-	print "\n";
-    }
+  print "\n";
+
+  while ($offset < $len) {
+    my $data = substr($_[0],$offset,$cnt);
+    my @y = CORE::unpack("C*",$data);
+
+    printf $fmt,$pos if $fmt;
+
+    # On the last time through replace '%02X ' with '__ ' for the
+    # missing values
+    substr($linefmt, 5*@y,5*($cnt-@y)) = "__ " x ($cnt - @y)
+	if @y != $cnt;
+
+    # Change non-printable chars to '.'
+    $data =~ s/[\x00-\x1f\x7f-\xff]/./sg;
+    printf $linefmt, @y,$data;
+
+    $offset += $cnt;
+    $pos += $cnt;
+  }
 }
 
+my %type = (
+  split(/[\t\n]\s*/,
+    q(10	SEQUENCE
+      01	BOOLEAN
+      0A	ENUM
+      11	SET
+      02	INTEGER
+      03	BIT STRING
+      C0	PRIVATE [%d]
+      04	STRING
+      40	APPLICATION [%d]
+      05	NULL
+      06	OBJECT ID
+      80	CONTEXT [%d]
+    )
+  )
+);
+
 sub dump {
-    my $ber = shift;
-    my $pos = 0;
-    my $indent = "";
-    my @seqend = ();
-#    $ber->[ Convert::BER::_POS() ] = 0;
+  my $ber = shift;
+  my $fh = @_ ? shift : \*STDERR;
 
-    while($ber->[ Convert::BER::_POS() ] < CORE::length($ber->[ Convert::BER::_BUFFER() ])) {
-        while(@seqend && $ber->[ Convert::BER::_POS() ] >= $seqend[0]) {
-	    $indent = substr($indent,2);
-	    shift @seqend;
-	}
+  my $ofh = select($fh);
 
-	my $tag = $ber->unpack_tag();
-	printf "%sTag   : 0x%X",$indent, $tag;
+  my $pos = 0;
+  my $indent = "";
+  my @seqend = ();
+  my $length = CORE::length($ber->[ Convert::BER::_BUFFER() ]);
+  my $fmt = $length > 0xffff ? "%08X" : "%04X";
 
-	if(($tag & 0xC0) == BER_APPLICATION) {
-	    print " APPLICATION";
-	}
-	elsif(($tag & 0xC0) == BER_CONTEXT) {
-	    print " CONTEXT";
-	}
-	elsif(($tag & 0xC0) == BER_PRIVATE) {
-	    print " PRIVATE";
-	}
-	else {
-	    print " UNIVERSAL";
-	}
+  local $ber->[ Convert::BER::_POS() ];
 
-	if(($tag & 0x20) == BER_CONSTRUCTOR) {
-	    print " CONSTRUCTOR";
-	}
-	else {
-	    print " PRIMITIVE";
-	}
+  $ber->[ Convert::BER::_POS() ] = 0;
 
-	printf " 0x%X\n", $tag & ~0xE0;
-	my $len = $ber->unpack_length();
-	printf "%sLength: 0x%X\n",$indent, $len;
-
-	if($tag & BER_CONSTRUCTOR) {
-	    unshift(@seqend, $ber->[ Convert::BER::_POS() ] + $len);
-	    $indent .= "  ";
-	    next;
-	}
-
-	_hexdump($ber->unpack($len),$indent . "Data  : ");
-    } continue { 
-	print "-" x 70,"\n";
+  while(1) {
+    while (@seqend && $ber->[ Convert::BER::_POS() ] >= $seqend[0]) {
+      $indent = substr($indent,2);
+      shift @seqend;
+      printf "$fmt        : %s}\n",$ber->[ Convert::BER::_POS() ],$indent;
     }
+    last unless $ber->[ Convert::BER::_POS() ] < $length;
+    
+    my $start = $ber->[ Convert::BER::_POS() ];
+    my $tag = unpack_tag($ber);
+    my $pos = $ber->[ Convert::BER::_POS() ];
+    my $len = Convert::BER::unpack_length($ber);
+
+    printf $fmt. " %02X %4d: %s",$start,$tag,$len,$indent;
+
+    my $label = $type{sprintf("%02X",$tag & ~0x20)}
+		|| $type{sprintf("%02X",$tag & 0xC0)}
+		|| "UNIVERSAL [%d]";
+    printf $label, $tag & ~0xE0;
+
+    if ($tag & BER_CONSTRUCTOR) {
+      print " {\n";
+      unshift(@seqend, $ber->[ Convert::BER::_POS() ] + $len);
+      $indent .= "  ";
+      next;
+    }
+
+    $ber->[ Convert::BER::_POS() ] = $pos;
+    my $tmp;
+
+    for ($label) { # switch
+      /^INTEGER/ && do {
+	Convert::BER::INTEGER->unpack($ber,\$tmp);
+	printf " = %d\n",$tmp;
+        last;
+      };
+
+      /^ENUM/ && do {
+	Convert::BER::ENUM->unpack($ber,\$tmp);
+	printf " = %d\n",$tmp;
+        last;
+      };
+
+      /^BOOLEAN/ && do {
+	Convert::BER::BOOLEAN->unpack($ber,\$tmp);
+	printf " = %s\n",$tmp ? 'TRUE' : 'FALSE';
+        last;
+      };
+
+      /^OBJECT ID/ && do {
+	Convert::BER::OBJECT_ID->unpack($ber,\$tmp);
+	printf " = %s\n",$tmp;
+        last;
+      };
+
+      /^NULL/ && do {
+        $ber->[ Convert::BER::_POS() ] = $pos+1;
+	print "\n";
+        last;
+      };
+
+      /^STRING/ && do {
+	Convert::BER::STRING->unpack($ber,\$tmp);
+	if ($tmp =~ /[\x00-\x1f\x7f-\xff]/s) {
+  	  _hexdump($tmp,$fmt . "        :   ".$indent, $pos);
+	}
+	else {
+	  printf " = '%s'\n",$tmp;
+	}
+        last;
+      };
+
+      /^BIT STRING/ && do {
+	Convert::BER::BIT_STRING->unpack($ber,\$tmp);
+	print " = ",$tmp,"\n";
+        last;
+      };
+
+      # default -- dump hex data
+      Convert::BER::STRING->unpack($ber,\$tmp);
+      _hexdump($tmp,$fmt . "        :   ".$indent, $pos);
+    }
+  }
+
+  select($ofh);
 }
 
 sub hexdump {
     my $ber = shift;
-    _hexdump($ber->[ Convert::BER::_BUFFER() ],"");
+    my $fh = @_ ? shift : \*STDERR;
+    my $ofh = select($fh);
+    _hexdump($ber->[ Convert::BER::_BUFFER() ]);
     print "\n";
+    select($ofh);
 }
 
 ##
@@ -449,7 +561,7 @@ sub encode {
     $ber->[ Convert::BER::_INDEX() ] = [];
 
     return $ber
-	if eval { $ber->_encode(\@_) };
+	if eval { Convert::BER::_encode($ber,\@_) };
 
     $ber->[ Convert::BER::_ERROR() ] = $@;
 
@@ -474,36 +586,36 @@ sub _encode {
 	die "Unknown element '$type'"
 	    unless $can;
 
-	my $pkg = &$can();
+	my $data = &$can();
+        my $pkg = $data->[ Convert::BER::_PACKAGE() ];
 
-	$tag = $pkg->tag
+	$tag = $data->[ Convert::BER::_TAG() ]
 	    unless defined $tag;
 
-	$arg = $arg->(@{$ber->[ Convert::BER::_INDEX() ]})
+	$arg = &{$arg}(@{$ber->[ Convert::BER::_INDEX() ]})
 	    if(ref($arg) eq 'CODE');
 
 	if(ref($arg) eq 'ARRAY') {
-	    if($can = $pkg->can('pack_array')) {
-		$ber->pack_tag($tag)
+	    if($can = $data->[Convert::BER::_PACK_ARRAY() ]) {
+		pack_tag($ber,$tag)
 		    if defined $tag;
 
-		$pkg->pack_array($ber,$arg);
+		&{$can}($pkg,$ber,$arg);
 	    }
 	    else {
 		my $a;
 		foreach $a (@$arg) {
-		    $ber->pack_tag($tag)
+		    pack_tag($ber,$tag)
 			if defined $tag;
 
-		    $pkg->pack($ber,$a);
+		    &{$data->[Convert::BER::_PACK() ]}($pkg,$ber,$a);
 		}
 	    }
 	}
 	else {
-	    $ber->pack_tag($tag)
+	    pack_tag($ber,$tag)
 		if defined $tag;
-
-	    $pkg->pack($ber,$arg);
+	    &{$data->[Convert::BER::_PACK() ]}($pkg,$ber,$arg);
 	}
     }
 
@@ -517,7 +629,7 @@ sub decode {
     $ber->[ Convert::BER::_INDEX() ] = [];
 
     return $ber
-	if eval { $ber->_decode(\@_) };
+	if eval { Convert::BER::_decode($ber,\@_) };
 
     $ber->[ Convert::BER::_ERROR() ] = $@;
     $ber->[ Convert::BER::_POS() ]   = $pos;
@@ -546,41 +658,42 @@ TAG:
 	die "Unknown element '$type'"
 	    unless $can;
 
-	my $pkg = &$can();
+	my $data = &$can();
+	my $pkg  = $data->[ Convert::BER::_PACKAGE() ];
 
-	$tag = $pkg->tag
+	$tag = $data->[ Convert::BER::_TAG() ]
 	    unless defined $tag;
 
-	$arg = $arg->(@{$ber->[ Convert::BER::_INDEX() ]})
+	$arg = &{$arg}(@{$ber->[ Convert::BER::_INDEX() ]})
 	    if(ref($arg) eq 'CODE');
 
 	if(ref($arg) eq 'ARRAY') {
-	    if($pkg->can('unpack_array')) {
+	    if($data->[ Convert::BER::_UNPACK_ARRAY() ]) {
 
-		$ber->unpack_tag($tag)
+		unpack_tag($ber,$tag)
 		    if(defined $tag);
 
-		$pkg->unpack_array($ber,$arg);
+		&{$data->[ Convert::BER::_UNPACK_ARRAY() ]}($pkg,$ber,$arg);
 	    }
 	    else {
 		@$arg = ();
 		while(CORE::length($ber->[ Convert::BER::_BUFFER() ]) > $ber->[ Convert::BER::_POS() ]) {
 		    if(defined $tag) {
 			next TAG
-			    unless $ber->unpack_tag($tag);
+			    unless unpack_tag($ber,$tag);
 		    }
 
 		    push @$arg, undef;
-		    $pkg->unpack($ber,\$arg->[-1]);
+		    &{$data->[ Convert::BER::_UNPACK() ]}($pkg,$ber,\$arg->[-1]);
 		}
 	    }
 	}
 	else {
 	    eval {
-		$ber->unpack_tag($tag)
+		unpack_tag($ber,$tag)
 		    if(defined $tag);
 
-		$pkg->unpack($ber,$arg);
+		&{$data->[ Convert::BER::_UNPACK() ]}($pkg,$ber,$arg);
 		1;
 	    } or ($$arg = undef, die);
 	}
@@ -629,9 +742,9 @@ sub read {
     my $pos = 0;
 
     $ber->[ Convert::BER::_POS() ] = 0;
-    $ber->unpack_tag();
+    unpack_tag($ber);
 
-    my $len = $ber->unpack_length();
+    my $len = Convert::BER::unpack_length($ber);
     my $got;
     $ber->[ Convert::BER::_POS() ] = 0;
 
@@ -713,7 +826,7 @@ sub unpack {
 
     my $len = CORE::length($ber->[ Convert::BER::_BUFFER() ]) - $ber->[ Convert::BER::_POS() ];
 
-    $$arg = $ber->new($ber->unpack($len));
+    $$arg = $ber->new(Convert::BER::unpack($ber,$len));
 
     1;
 }
@@ -732,11 +845,11 @@ sub unpack {
     my($self,$ber,$arg) = @_;
 
     my $pos = $ber->[ Convert::BER::_POS() ];
-    my $tag = $ber->unpack_tag();
-    my $len = $ber->unpack_length() + $ber->[ Convert::BER::_POS() ] - $pos;
+    my $tag = Convert::BER::unpack_tag($ber);
+    my $len = Convert::BER::unpack_length($ber) + $ber->[ Convert::BER::_POS() ] - $pos;
     $ber->[ Convert::BER::_POS() ] = $pos;
 
-    $$arg = $ber->new($ber->unpack($len));
+    $$arg = $ber->new(Convert::BER::unpack($ber,$len));
 
     1;
 }
@@ -750,7 +863,7 @@ package Convert::BER::BOOLEAN;
 sub pack {
     my($self,$ber,$arg) = @_;
 
-    $ber->pack_length(1);
+    Convert::BER::pack_length($ber,1);
     $ber->[ Convert::BER::_BUFFER() ] .= CORE::pack("c", $arg ? 0xff : 0x00);
 
     1;
@@ -759,9 +872,9 @@ sub pack {
 sub unpack {
     my($self,$ber,$arg) = @_;
 
-    my $len = $ber->unpack_length();
+    my $len = Convert::BER::unpack_length($ber);
 
-    $$arg = CORE::unpack("c", $ber->unpack($len)) ? 1 : 0;
+    $$arg = CORE::unpack("c", Convert::BER::unpack($ber,$len)) ? 1 : 0;
 
     1;
 }
@@ -799,7 +912,7 @@ sub pack_bigint {
     unshift(@octet,$neg ? 0xff : 0x00)
 	if($neg != $msb);
 
-    $ber->pack_length(scalar @octet);
+    Convert::BER::pack_length($ber, scalar @octet);
 
     $ber->[ Convert::BER::_BUFFER() ] .= CORE::pack("C*",@octet);
 
@@ -811,8 +924,8 @@ sub unpack_bigint {
 
     require Math::BigInt;
 
-    my $len = $ber->unpack_length();
-    my @octet = CORE::unpack("C*",$ber->unpack($len));
+    my $len = Convert::BER::unpack_length($ber);
+    my @octet = CORE::unpack("C*",Convert::BER::unpack($ber,$len));
     my $neg = ($octet[0] & 0x80) ? 1 : 0;
     my $val = $$arg = 0;
 
@@ -888,7 +1001,7 @@ sub pack_biginteger {
 	$data = CORE::pack("C",0);
     }
 
-    $ber->pack_length($len);
+    Convert::BER::pack_length($ber,$len);
     $ber->[ Convert::BER::_BUFFER() ] .= substr($data,$offset);
 
     return 1;
@@ -899,8 +1012,8 @@ sub unpack_biginteger {
 
     require Math::BigInteger;
 
-    my $len = $ber->unpack_length();
-    my $data = $ber->unpack($len);
+    my $len = Convert::BER::unpack_length($ber);
+    my $data = Convert::BER::unpack($ber,$len);
     my $int = restore Math::BigInteger $data;
 
     # restore has no concept of +/-
@@ -938,8 +1051,7 @@ sub pack {
 
     $len++
 	if(($msb && not($neg)) || ($neg && not($msb)));
-
-    $ber->pack_length($len);
+    Convert::BER::pack_length($ber,$len);
     $ber->[ Convert::BER::_BUFFER() ] .= substr(CORE::pack("N",$arg), 0 - $len);
 
     1;
@@ -956,8 +1068,8 @@ sub unpack {
 	    if UNIVERSAL::isa($$arg,'Math::BigInteger');
     }
 
-    my $len = $ber->unpack_length();
-    my $tmp = "\0" x (4 - $len) . $ber->unpack($len);
+    my $len = Convert::BER::unpack_length($ber);
+    my $tmp = "\0" x (4 - $len) . Convert::BER::unpack($ber,$len);
     my $val = CORE::unpack("N",$tmp);
 
     $val -=  0x1 << ($len * 8)
@@ -977,13 +1089,13 @@ package Convert::BER::NULL;
 sub pack {
     my($self,$ber,$arg) = @_;
 
-    $ber->pack_length(0);
+    Convert::BER::pack_length($ber,0);
 }
 
 sub unpack {
     my($self,$ber,$arg) = @_;
 
-    $ber->unpack_length();
+    Convert::BER::unpack_length($ber);
 
     $$arg = 1;
 }
@@ -997,15 +1109,15 @@ package Convert::BER::STRING;
 sub pack {
     my($self,$ber,$arg) = @_;
 
-    $ber->pack_length(CORE::length($arg));
+    Convert::BER::pack_length($ber,CORE::length($arg));
     $ber->[ Convert::BER::_BUFFER() ] .= $arg;
 }
 
 sub unpack {
     my($self,$ber,$arg) = @_;
 
-    my $len = $ber->unpack_length();
-    $$arg = $ber->unpack($len);
+    my $len = Convert::BER::unpack_length($ber);
+    $$arg = Convert::BER::unpack($ber,$len);
 
     1;
 }
@@ -1019,7 +1131,7 @@ package Convert::BER::SEQUENCE;
 sub pack {
     my($self,$ber,$arg) = @_;
 
-    $ber->pack_length(CORE::length($arg->[ Convert::BER::_BUFFER() ]));
+    Convert::BER::pack_length($ber,CORE::length($arg->[ Convert::BER::_BUFFER() ]));
     $ber->[ Convert::BER::_BUFFER() ] .= $arg->[ Convert::BER::_BUFFER() ];
 
     1;
@@ -1028,8 +1140,8 @@ sub pack {
 sub unpack {
     my($self,$ber,$arg) = @_;
 
-    my $len = $ber->unpack_length();
-    $$arg = $ber->new($ber->unpack($len));
+    my $len = Convert::BER::unpack_length($ber);
+    $$arg = $ber->new(Convert::BER::unpack($ber,$len));
 
     1;
 }
@@ -1042,7 +1154,7 @@ sub pack_array {
     return undef
 	unless defined($ber2->_encode($arg));
 
-    $ber->pack_length(CORE::length($ber2->[ Convert::BER::_BUFFER() ]));
+    Convert::BER::pack_length($ber,CORE::length($ber2->[ Convert::BER::_BUFFER() ]));
     $ber->[ Convert::BER::_BUFFER() ] .= $ber2->[ Convert::BER::_BUFFER() ];
 
     1;
@@ -1058,7 +1170,7 @@ sub unpack_array {
     $ber2->_decode($arg);
 
     die "Sequence buffer not empty"
-	if length($ber2->[ Convert::BER::_BUFFER() ]) != $ber2->[ Convert::BER::_POS() ];
+	if CORE::length($ber2->[ Convert::BER::_BUFFER() ]) != $ber2->[ Convert::BER::_POS() ];
 
     1;
 }
@@ -1097,7 +1209,7 @@ sub pack {
 
     my $data = CORE::pack("C*", @data);
 
-    $ber->pack_length(CORE::length($data));
+    Convert::BER::pack_length($ber,CORE::length($data));
     $ber->[ Convert::BER::_BUFFER() ] .=  $data;
 
     1;
@@ -1106,8 +1218,8 @@ sub pack {
 sub unpack {
     my($self,$ber,$arg) = @_;
 
-    my $len = $ber->unpack_length();
-    my @ch = CORE::unpack("C*",$ber->unpack($len));
+    my $len = Convert::BER::unpack_length($ber);
+    my @ch = CORE::unpack("C*",Convert::BER::unpack($ber,$len));
     my @data = ();
     my $val = 0;
     while(@ch) {
@@ -1142,8 +1254,8 @@ BEGIN {
 sub pack {
     my($self,$ber,$arg) = @_;
 
-    $ber->pack_tag($arg->tag | BER_CONSTRUCTOR);
-    $ber->pack_length(CORE::length($arg->[ Convert::BER::_BUFFER() ]));
+    Convert::BER::pack_tag($ber,$arg->tag | BER_CONSTRUCTOR);
+    Convert::BER::pack_length($ber,CORE::length($arg->[ Convert::BER::_BUFFER() ]));
     $ber->[ Convert::BER::_BUFFER() ] .= $arg->[ Convert::BER::_BUFFER() ];
 
     1;
@@ -1151,15 +1263,15 @@ sub pack {
 
 sub unpack {
     my($self,$ber,$arg) = @_;
-    my $tag = $ber->unpack_tag();
+    my $tag = Convert::BER::unpack_tag($ber);
 
     die "Not constructed"
 	unless $tag & BER_CONSTRUCTOR;
 
-    my $len = $ber->unpack_length();
-    my $buf = $ber->new( $ber->unpack($len));
+    my $len = Convert::BER::unpack_length($ber);
+    my $buf = $ber->new( Convert::BER::unpack($ber,$len));
 
-    die $ber->(0,"Bad construction")
+    die &{$ber}(0,"Bad construction")
 	unless( ($buf->tag | BER_CONSTRUCTOR) == $tag);
 
     $$arg = $buf;
@@ -1207,20 +1319,20 @@ sub pack_array {
     foreach $a (@$arg) {
         return unless defined $a;
         my $c = ref($a) eq "CODE"
-                        ? $a->(@{$ber->[ Convert::BER::_INDEX() ]})
+                        ? &{$a}(@{$ber->[ Convert::BER::_INDEX() ]})
                         : $a;
         return unless defined $c;
         push @newarg, $c;
     }
 
-    $ber->_encode(\@newarg);
+    Convert::BER::_encode($ber,\@newarg);
 }
 
 sub unpack_array {
     my($self,$ber,$arg) = @_;
     my $pos = $ber->[ Convert::BER::_POS() ];
 
-    eval { $ber->_decode($arg) } or
+    eval { Convert::BER::_decode($ber,$arg) } or
 	$ber->[ Convert::BER::_POS() ] = $pos;
 
     1;
@@ -1237,7 +1349,7 @@ sub pack_array {
     my($n,@desc) = @$arg;
     my $i;
 
-    $n = $n->(@{$ber->[ Convert::BER::_INDEX() ]})
+    $n = &{$n}(@{$ber->[ Convert::BER::_INDEX() ]})
 	if ref($n) eq 'CODE';
 
     push(@{$ber->[ Convert::BER::_INDEX() ]},0);
@@ -1267,7 +1379,7 @@ sub pack_array {
 
     pop @{$ber->[ Convert::BER::_INDEX() ]};
 
-    $ber->pack_length(CORE::length($b->[ Convert::BER::_BUFFER() ]));
+    Convert::BER::pack_length($ber,CORE::length($b->[ Convert::BER::_BUFFER() ]));
     $ber->[ Convert::BER::_BUFFER() ] .= $b->[ Convert::BER::_BUFFER() ];
 
     1;
@@ -1279,8 +1391,8 @@ sub unpack_array {
 
     push(@{$ber->[ Convert::BER::_INDEX() ]},0);
 
-    my $len = $ber->unpack_length();
-    my $b   = $ber->new($ber->unpack($len));
+    my $len = Convert::BER::unpack_length($ber);
+    my $b   = $ber->new(Convert::BER::unpack($ber,$len));
     my $pos = $ber->[ Convert::BER::_POS() ];
     my $n;
 
@@ -1292,5 +1404,36 @@ sub unpack_array {
     $$nref = pop @{$ber->[ Convert::BER::_INDEX() ]};
     1;
 }
+
+##
+##
+##
+
+package Convert::BER::BIT_STRING;
+
+sub pack {
+    my($self,$ber,$arg) = @_;
+
+    my $less = (8 - (CORE::length($arg) & 7)) & 7;
+    $arg .= "0" x $less if $less;
+    my $data = CORE::pack("B*",$arg);
+    Convert::BER::pack_length($ber,CORE::length($data)+1);
+    $ber->[ Convert::BER::_BUFFER() ] .= chr($less) . $data;
+}
+
+sub unpack {
+    my($self,$ber,$arg) = @_;
+
+    my $len  = Convert::BER::unpack_length($ber);
+    my $data = Convert::BER::unpack($ber,$len);
+    my $less;
+    ($less,$data) = CORE::unpack("C B*",$data,);
+    $less = ord($less) & 7;
+    substr($data,-$less) = '' if $less;
+    $$arg = $data;
+    1;
+}
+
+
 
 1;

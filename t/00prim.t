@@ -6,7 +6,7 @@
 
 use Convert::BER;
 
-print "1..75\n";
+print "1..90\n";
 
 $tcount = $test = 1;
 
@@ -235,9 +235,6 @@ while(($val,$result) = each %OBJECT_ID) {
     }
 }
 
-print "not ok ",$test++,"\n"
-	while($test <= 33);
-
 ##
 ## ENUM
 ##
@@ -274,6 +271,47 @@ while(($v,$result) = each %ENUM) {
 	    print "ok ",$test++,"\n";
 
 	die unless ($enum == $val);
+
+	    print "ok ",$test++,"\n";
+    }
+}
+
+##
+## BIT STRING
+##
+
+my %BSTR = (
+    '0'		=> pack("C*", 0x03, 0x02, 0x07, 0x00),
+    '00110011'	=> pack("C*", 0x03, 0x02, 0x00, 0x33),
+    '011011100101110111'
+		=> pack("C*", 0x03, 0x04, 0x06, 0x6E, 0x5D, 0xC0),
+);
+
+while(($val,$result) = each %BSTR) {
+    print "# BIT STRING $val\n";
+
+    $tcount += 5;
+
+    test {
+        my $ber = Convert::BER->new->encode( BIT_STRING => $val) or die;
+
+	    print "ok ",$test++,"\n";
+
+	die unless $ber->buffer eq $result;
+
+	    print "ok ",$test++,"\n";
+
+	my $bstr = undef;
+
+	die unless $ber->decode( BIT_STRING => \$bstr);
+
+	    print "ok ",$test++,"\n";
+
+	die unless defined($bstr);
+
+	    print "ok ",$test++,"\n";
+
+	die unless ($bstr eq $val);
 
 	    print "ok ",$test++,"\n";
     }
