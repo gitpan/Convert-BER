@@ -1,0 +1,4 @@
+^(?!(MANIFEST(.SKIP)?|README|TODO|bertest|Notes|Makefile.PL|.*\.(xs|pm|pod)|)$)[^/]*$
+.nfs.*
+.b[ac]k$
+blib/

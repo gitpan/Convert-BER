@@ -1,0 +1,82 @@
+use lib '/home/isp/gb/src/Error';
+use lib '.';
+
+use Convert::BER;
+use strict;
+
+my %fred = (
+  joe => [qw(joes list of strings)],
+  jack => [qw(went up the hill)]
+);
+
+my @fred = keys %fred;
+
+my $b = new Convert::BER;
+warn $b;
+$b->encode(
+    STRING => "dn",
+    SEQUENCE_OF => [ 2,
+	STRING => sub {  $fred[$_[0]] },
+	SET => [
+	    STRING => sub {  $fred{$fred[$_[0]]} }
+	]
+    ], NULL => 0
+);
+
+#$b->dump;
+my $dn = "";
+my %joe = ();
+my @joe = ();
+my $count = 0;
+$b->decode(
+    STRING => \$dn,
+    SEQUENCE_OF => [ \$count,
+	STRING => sub {  \$joe[ $_[0] ] },
+	SET => [
+	    STRING => sub {   $joe{$joe[$_[0]]} ||= [] }
+	]
+    ],
+    undef
+) or die $b->Error;
+
+print $dn," ",$count,"\n";
+my($k,$v);
+while(($k,$v) = each %joe) {
+    print join(" ",$k,"=",@$v),"\n";
+}
+
+__END__
+
+$b = new Convert::BER;
+
+$b->encode(
+    CONSTRUCTED => [ STRING => [qw(list of strings)] ]
+);
+
+$b->dump;
+
+$b->decode(
+    CONSTRUCTED => [ STRING => \@a ]
+);
+warn join(",",@a);
+
+#$b->clear;
+$b->encode(
+    BOOLEAN => 1,
+    CONSTRUCTED => [ STRING => [qw(list of strings)] ]
+);
+
+print "x" x 80,"\n";
+$b->dump;
+
+$i = 0;
+$c = 99;
+$b->decode(
+    OPTIONAL => [ INTEGER => \$i ],
+    OPTIONAL => [ BOOLEAN => \$c ],
+    CONSTRUCTED => [ STRING => \@a ]
+);
+
+warn defined($i) ? "i=$i" : "i=undef";
+warn defined($c) ? "c=$c" : "c=undef";
+warn join(",",@a);

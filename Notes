@@ -1,0 +1,251 @@
+
+How it works
+
+encode and decode take a list of OPERATOR => VALUE pairs. An operator
+can be one of several types.
+
+	Primitive
+	Control
+	Derived
+
+An operator can be a reference to a list of 2 elements, in this case the first
+element would be the operator identifier a usual, but the second
+element would be the tag value to use, this is a alternative to
+creating a sub-class of Convert::BER.
+
+The primitive operators defined are
+
+	BOOLEAN, INTEGER, STRING, NULL, OBJECT_ID
+
+For encoding the value should be a single value of the correct type,
+or a reference to a list of values of the correct type, which will
+cause multiple additions to the encoding.
+
+For decoding VALUE must be a reference to a scalar which will be set
+after a sucessful decode, or a reference to a list, which will cause
+the decode of all subsequent elements of the same type to be
+decoded and pushed into the list
+
+For both encode and decode VALUE can be a CODE ref. In this case the sub
+will be called, and the result used. If inside SEQUENCE_OF then
+@_ in the sub will be a list in indexes for the current loops.
+
+The derived operators are
+
+	ENUM - A derived INTEGER, but with a different tag value
+
+	SET  - A derived SEQUENCE, but with a different tag value
+
+	BIGINT - well not really a derived, but it takes a Math::BigInt as
+		 an argument.
+
+the control operators defined are
+
+	BER - The argument must be a Conver::BER object, and its buffer
+		is appended to the current object for encode, and for decode
+		it will create a new BER object from the next element.
+
+	SEQUENCE - Takes a reference to a list, encode/decode a SEQUENCE
+		element as described by the contents of the list.
+
+	CONSTRUCTED - Takes a reference to a list of two elements.
+
+	OPTIONAL - Takes a reference to a list. For encode, if the first
+		element of this list is true then the rest of the list
+		is passed to encode. For decode the fist element should be
+		a reference to a SCALAR and if the rest of the list decodes
+		sucessfully the scalar will be set to true.
+
+	SET_OF, SEQUENCE_OF - take a reference to a list
+		For decode it is a reference to
+		a scalar which will hold the number that were decoded.
+
+		for encode, if the itterator is a hash ref, then it will
+		itterate through the keys. If it is an array ref, it will
+		itterate through the elements. If it is a scalar it will
+		itterate N times.
+
+		Any CODE refs called from within one of these will be passed a
+		list of current itterator values. If SEQUENCE_OF's are nested
+		the the code ref's will be passed an index for each level of
+		nesting, with the index for the outermost nesting being passed
+		first.
+
+
+
+
+
+THE OPERATOR interface
+
+operators a defined in packages of thier own, an operator called STRING
+defined on the Convert::BER class will be defined in a package called
+Convert::BER::STRING and will be avaliable to any package that sub-classes
+Convert::BER.
+
+Users can sub-class Convert::BER to add thier own operators, thus is a package
+called LDAP::BER was a sub-class of Convert::BER, then an operator (eg AND)
+defined on this class would be defined in the package LDAP::BER::AND. Only the
+operators defined on Convert::BER and LDAP::BER would be avaliable to
+a LDAP::BER object.
+
+
+There are four basic functions
+
+pack($self,$ber,$arg)
+
+this is called as a static method on $self, the result should be
+that $arg should be encoded and packed into $ber.
+
+unpack($self,$ber,$posref,$arg)
+
+this is called as a static method on $self, $posref is a ref to a scalar
+which holds the index of the first octet after the tag. One element
+should be decoded and places into $arg (which is a reference) $posref
+should the be updated to point to the first octet after the element.
+
+On error $$arg should be undef, $$posref should be unchanged and the
+return value should be undef.
+
+pack_array($self,$ber,$arg)
+
+This is like pack, except $are will be a reference to an array. This
+method is defined by operators that want to do something different
+with array refs. (eg SEQUENCE, CONSTRUCTED etc)
+
+unpack_array($self,$ber,$posref,$arg)
+
+this is to unpack as pack_array is to pack.
+
+for both unpack_array and pack_array the array referenced by $arg should
+not be modified (shift etc) as it may cause sebsequent calls from the
+user code to break.
+
+
+###
+### I did start the POD a while back, but it is now so out of date I
+### have placed it here
+###
+
+
+=head1 NAME
+
+Convert::BER - Basic Encoding Rules for ASN.1
+
+=head1 SYNOPSIS
+
+    use Convert::BER;
+
+    $ber = new Convert::BER;
+
+    $ber->encode(
+	INTEGER => 10,
+	STRING  => "a string",
+	SEQUENCE => [
+	    BOOLEAN => 1,
+	    STRING => [ qw(a list of strings) ]
+	]
+    );
+
+    $ber->decode(
+	INTEGER => \$int,
+	STRING  => \$str,
+	SEQUENCE => [
+	    BOOLEAN => \$bool,
+	    STRING => \@str_list
+	]
+    );
+
+=head1 DESCRIPTION
+
+
+=over 4
+
+=item INTEGER => VALUE
+
+=item STRING => VALUE
+
+=item BOOLEAN => VALUE
+
+=item NULL => VALUE
+
+=item OBJECT_ID => VALUE
+
+Encode VALUE, if VALUE is a reference to an ARRAY then encode
+each element in the array.
+
+=item SEQUENCE => ARRAY
+
+=item SET => ARRAY
+
+Encode the contents of ARRAY and add a SEQUENCE or SET header
+
+=item BER => OBJ
+
+OBJ should be a C<Convert::BER> object, the buffer of this object will just
+be inserted. If OBJ is a reference to an ARRAY then each element
+in the array should be a C<Convert::BER> object and all of then
+will be inserted.
+
+
+=item OPTIONAL => ARRAY
+
+decode content of ARRAY if they exists, or none of them.
+=item CONSTRUCTED => ARRAY
+
+=item CONSTRUCTED => OBJ
+
+ARRAY should be a reference to a 2 element array
+
+OBJ should be a Convert::BER object
+
+=back
+
+=head1 DEFINEING NEW TYPES
+
+=over 4
+
+=item pack SELF, BER, ARG
+
+pack ARG into BER, called as a static method on SELF
+
+=item unpack SELF, BER, POSREF, ARG
+
+unpack an element. POSREF is a reference to a scalar holding the starting point,
+and should be updated with the position of the end.
+
+ARG is a reference where the result should be placed.
+
+
+=item pack_array SELF, BER, ARG
+
+As C<pack> but ARG will be a reference to an ARRAY. Used only if type
+want to do something different to the usual (eg SEQUENCE)
+
+=item unpack_array SELF, BER, POSREF, ARG
+
+As C<unpack> but ARG will be a reference to an ARRAY. Used only if type
+want to do something different to the usual (eg SEQUENCE)
+
+=back
+
+=head1 AUTHOR
+
+Graham Barr E<lt>F<gbarr@ti.com>E<gt>
+
+=head1 CREDITS
+
+The following people have given some useful input into the design of this
+package.
+
+Russell Fulton E<lt>F<r.fulton@auckland.ac.nz>E<gt>
+Benjamin Holzman E<lt>F<bah@mail.med.cornell.edu>E<gt>
+Emmanuel Tlemcani E<lt>F<Emmanuel.Tlemcani@der.edfgdf.fr>E<gt>
+Ian Redfern E<lt>F<RedfernI@logica.com>E<gt>
+
+=head1 COPYRIGHT
+
+This program is free software; you can redistribute it and/or modify
+it under the same terms as Perl itself.
+
+=cut
+
