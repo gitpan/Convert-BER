@@ -12,7 +12,7 @@ use strict;
 use vars qw($VERSION @ISA @EXPORT_OK);
 
 BEGIN {
-    $VERSION = "1.23";
+    $VERSION = "1.25";
 
     @ISA = qw(Exporter);
     
@@ -23,6 +23,7 @@ BEGIN {
 	BER_OCTET_STR
 	BER_NULL
 	BER_OBJECT_ID
+	BER_REAL
 	BER_SEQUENCE
 	BER_SET
 
@@ -73,9 +74,14 @@ sub BER_BIT_STR 	() { 0x03 }
 sub BER_OCTET_STR 	() { 0x04 }
 sub BER_NULL 		() { 0x05 }
 sub BER_OBJECT_ID 	() { 0x06 }
+sub BER_REAL 		() { 0x09 }
 sub BER_ENUMERATED	() { 0x0A }
 sub BER_SEQUENCE 	() { 0x10 }
 sub BER_SET 		() { 0x11 }
+sub BER_PRINT_STR	() { 0x13 }
+sub BER_IA5_STR		() { 0x16 }
+sub BER_UTC_TIME	() { 0x17 }
+sub BER_GENERAL_TIME	() { 0x18 }
 
 sub BER_UNIVERSAL 	() { 0x00 }
 sub BER_APPLICATION 	() { 0x40 }
@@ -97,6 +103,7 @@ sub _BUFFER () { 0 }
 sub _POS    () { 1 }
 sub _INDEX  () { 2 }
 sub _ERROR  () { 3 }
+sub _PEER   () { 4 }
 
 sub _PACKAGE      () { 0 }
 sub _TAG          () { 1 }
@@ -126,24 +133,51 @@ INIT: {
     [ NULL        => undef, BER_UNIVERSAL | BER_PRIMITIVE   | BER_NULL	     ],
     [ OBJECT_ID   => undef, BER_UNIVERSAL | BER_PRIMITIVE   | BER_OBJECT_ID  ],
     [ BIT_STRING  => undef, BER_UNIVERSAL | BER_PRIMITIVE   | BER_BIT_STR    ],
+    [ BIT_STRING8 => undef, BER_UNIVERSAL | BER_PRIMITIVE   | BER_BIT_STR    ],
+    [ REAL	  => undef, BER_UNIVERSAL | BER_PRIMITIVE   | BER_REAL       ],
 
     [ SEQUENCE    => undef, BER_UNIVERSAL | BER_CONSTRUCTOR | BER_SEQUENCE   ],
     [ SEQUENCE_OF => undef, BER_UNIVERSAL | BER_CONSTRUCTOR | BER_SEQUENCE   ],
   );
 
   ##
-  ## $INTEGER and $SEQUENCE will be defined by the above ->define() call
+  ## These variables will be defined by the above ->define() call
   ##
 
-  use vars qw($INTEGER $SEQUENCE);
+  use vars qw($INTEGER $SEQUENCE $STRING $SEQUENCE_OF);
 
   Convert::BER->define(
     ##
     ## Sub-classed primitive operators
     ##
 
-    [ ENUM => $INTEGER,  BER_UNIVERSAL | BER_PRIMITIVE   | BER_ENUMERATED ],
-    [ SET  => $SEQUENCE, BER_UNIVERSAL | BER_CONSTRUCTOR | BER_SET        ],
+    [ ENUM   => $INTEGER,     BER_UNIVERSAL | BER_PRIMITIVE   | BER_ENUMERATED ],
+    [ SET    => $SEQUENCE,    BER_UNIVERSAL | BER_CONSTRUCTOR | BER_SET        ],
+    [ SET_OF => $SEQUENCE_OF, BER_UNIVERSAL | BER_CONSTRUCTOR | BER_SET        ],
+
+    [ ObjectDescriptor => $STRING, BER_UNIVERSAL |  7],
+    [ UTF8String       => $STRING, BER_UNIVERSAL | 12],
+    [ NumericString    => $STRING, BER_UNIVERSAL | 18],
+    [ PrintableString  => $STRING, BER_UNIVERSAL | 19],
+    [ TeletexString    => $STRING, BER_UNIVERSAL | 20],
+    [ T61String        => $STRING, BER_UNIVERSAL | 20],
+    [ VideotexString   => $STRING, BER_UNIVERSAL | 21],
+    [ IA5String        => $STRING, BER_UNIVERSAL | 22],
+    [ GraphicString    => $STRING, BER_UNIVERSAL | 25],
+    [ VisibleString    => $STRING, BER_UNIVERSAL | 26],
+    [ ISO646String     => $STRING, BER_UNIVERSAL | 26],
+    [ GeneralString    => $STRING, BER_UNIVERSAL | 27],
+    [ UTCTime          => $STRING, BER_UNIVERSAL | 23],
+    [ GeneralizedTime  => $STRING, BER_UNIVERSAL | 24],
+  );
+
+  Convert::BER->define(
+    [ '_Time_generic' => $STRING, undef ],
+    [ TimeUZ  => '_Time_generic', BER_UNIVERSAL | 23],
+    [ TimeUL  => '_Time_generic', BER_UNIVERSAL | 23],
+
+    [ TimeGZ  => '_Time_generic', BER_UNIVERSAL | 24],
+    [ TimeGL  => '_Time_generic', BER_UNIVERSAL | 24],
   );
 }
 
@@ -212,6 +246,7 @@ sub define {
     }
 }
 
+# Now we have done the naughty stuff, make sure we do no more
 use strict;
 
 sub new {
@@ -241,7 +276,8 @@ sub num_length {
 
 sub pos {
     my $ber = shift;
-    @_ ? ($ber->[ Convert::BER::_POS() ] = shift) : $ber->[ Convert::BER::_POS() ];
+    @_ ? ($ber->[ Convert::BER::_POS() ] = shift)
+       : $ber->[ Convert::BER::_POS() ];
 }
 
 sub pack {
@@ -253,11 +289,12 @@ sub pack {
 sub unpack {
     my($ber,$len) = @_;
     my $pos = $ber->[ Convert::BER::_POS() ];
+    my $npos = $pos + $len;
 
     die "Buffer empty"
-	if(($pos + $len) > CORE::length($ber->[ Convert::BER::_BUFFER() ]));
+	if ($npos > CORE::length($ber->[ Convert::BER::_BUFFER() ]));
 
-    $ber->[ Convert::BER::_POS() ] += $len;
+    $ber->[ Convert::BER::_POS() ] = $npos;
 
     substr($ber->[ Convert::BER::_BUFFER() ],$pos,$len);
 }
@@ -720,54 +757,82 @@ TAG:
 sub read {
     my $ber = shift;
     my $io  = shift;
-    local($SIG{'__DIE__'});
+
+    # We need to read one packet, and exactly only one packet.
+    # So we have to read the first few bytes one at a time, until
+    # we have enough to decode a tage and a length. We then know
+    # how many more bytes to read
 
     $ber = $ber->new unless ref($ber);
-    $ber->[ Convert::BER::_BUFFER() ] = "";
-    $ber->[ Convert::BER::_POS() ] = 0;
+    $ber->[ _BUFFER() ] = "";
 
-    $io->sysread($ber->[ Convert::BER::_BUFFER() ],1) or
-	return eval { die "I/O Error $!" };
+    # The first byte is the tag
+    sysread($io,$ber->[ _BUFFER() ],1) or
+	goto READ_ERR;
 
-    my $ch = CORE::unpack("C",$ber->[ Convert::BER::_BUFFER() ]);
+#    print STDERR CORE::unpack("H*",$ber->[ _BUFFER() ]),"\n";
 
+    my $ch = CORE::unpack("C",$ber->[ _BUFFER() ]);
+    my $pos = 1;
+
+    # Tag may be multi-byte
     if(($ch & 0x1f) == 0x1f) {
 	do {
-	    $io->sysread($ber->[ Convert::BER::_BUFFER() ],1,CORE::length($ber->[ Convert::BER::_BUFFER() ])) or
-		return eval { die "I/O Error $!" };
+	    sysread($io, $ber->[ _BUFFER() ], 1, $pos++) or
+		goto READ_ERR;
 
-	    $ch = CORE::unpack("C",substr($ber->[ Convert::BER::_BUFFER() ],-1));
+	    $ch = CORE::unpack("C",substr($ber->[ _BUFFER() ],-1));
 
 	} while($ch & 0x80);
     }
 
-    $io->sysread($ber->[ Convert::BER::_BUFFER() ],1,CORE::length($ber->[ Convert::BER::_BUFFER() ])) or
-	return eval { die "I/O Error $!" };
+#    print STDERR CORE::unpack("H*",$ber->[ _BUFFER() ]),"\n";
 
-    $ch = CORE::unpack("C",substr($ber->[ Convert::BER::_BUFFER() ],-1));
+    # The next byte will be the first byte of the length
+    sysread($io, $ber->[ _BUFFER() ], 1, $pos++) or
+	goto READ_ERR;
 
+#    print STDERR CORE::unpack("H*",$ber->[ _BUFFER() ]),"\n";
+
+    $ch = CORE::unpack("C",substr($ber->[ _BUFFER() ],-1));
+
+    # May be a multi-byte length
     if($ch & 0x80) {
-	$io->sysread($ber->[ Convert::BER::_BUFFER() ],$ch & 0x7f,CORE::length($ber->[ Convert::BER::_BUFFER() ])) or
-	    return eval { die "I/O Error" };
+	my $len = $ch & 0x7f;
+	while($len) {
+	    my $n = sysread($io, $ber->[ _BUFFER() ], $len, $pos) or
+		goto READ_ERR;
+	    $len -= $n;
+	    $pos += $n;
+	}
     }
 
-    my $pos = 0;
+#    print STDERR CORE::unpack("H*",$ber->[ _BUFFER() ]),"\n";
 
-    $ber->[ Convert::BER::_POS() ] = 0;
+    # We can now unpack a tage and a length to determine how many more
+    # bytes to read
+
+    $ber->[ _POS() ] = 0;
     unpack_tag($ber);
-
-    my $len = Convert::BER::unpack_length($ber);
-    my $got;
-    $ber->[ Convert::BER::_POS() ] = 0;
+    my $len = unpack_length($ber);
 
     while($len) {
-	return eval { die "I/O Error $!" }
-	    unless( $got = $io->sysread($ber->[ Convert::BER::_BUFFER() ],$len,CORE::length($ber->[ Convert::BER::_BUFFER() ])) );
+	my $got;
+
+	goto READ_ERR
+	    unless( $got = sysread($io, $ber->[ _BUFFER() ],$len,CORE::length($ber->[ _BUFFER() ])) );
 
 	$len -= $got;
     }
 
-    $ber;
+    # Reset pos back to the beginning.
+    $ber->[ _POS() ] = 0;
+
+    return $ber;
+
+READ_ERR:
+    $@ = "I/O Error $! " . CORE::unpack("H*",$ber->[ _BUFFER() ]);
+    return undef;
 }
 
 sub write {
@@ -775,12 +840,17 @@ sub write {
     my $io = shift;
     local($SIG{'__DIE__'});
 
-    my $togo = CORE::length($ber->[ Convert::BER::_BUFFER() ]);
+    my $togo = CORE::length($ber->[ _BUFFER() ]);
     my $pos = 0;
 
     while($togo) {
-	my $len = $io->syswrite($ber->[ Convert::BER::_BUFFER() ],$togo,$pos) or
-	    return eval { die "I/O Error" };
+	my $len;
+
+	unless ($len = syswrite($io, $ber->[ _BUFFER() ],$togo,$pos)) {
+	    $@ = "I/O Error $!";
+	    return;
+	}
+
 	$togo -= $len;
 	$pos += $len;
     }
@@ -791,7 +861,8 @@ sub write {
 sub send {
     my $ber = shift;
     my $sock = shift;
-    $sock->send($ber->[ Convert::BER::_BUFFER() ],0,@_);
+    @_ ? send($sock,$ber->[ _BUFFER() ],0,$_[0])
+       : send($sock,$ber->[ _BUFFER() ],0);
 }
 
 sub recv {
@@ -801,20 +872,48 @@ sub recv {
     require Socket; # for Socket::MSG_PEEK
 
     $ber = $ber->new unless ref($ber);
-    $ber->[ Convert::BER::_BUFFER() ] = "";
-    $ber->[ Convert::BER::_POS() ] = 0;
+    $ber->[ _BUFFER() ] = "";
 
     # We do not know the size of the datagram, so we have to PEEK --GMB
-    my $n = 0;
-    do {
-	$n += 1024;
-	$sock->recv($ber->[ Convert::BER::_BUFFER() ],$n,Socket::MSG_PEEK());
-    } while($n == CORE::length($ber->[ Convert::BER::_BUFFER() ]));
+    # is there an easier way to determine the packet size ??
+
+    my $n = 128;
+    recv($sock,$ber->[ _BUFFER() ],$n,Socket::MSG_PEEK());
+
+    # If the packet is bigger than $n the buffer size will == $n
+    if($n == CORE::length($ber->[ _BUFFER() ])) {
+	my $len;
+	
+	local $SIG{'__DIE__'};
+
+	for(;;) {
+
+	    # If we can decode a tag and length we can detemine the length
+	    if(defined($len = eval {
+				   $ber->[ _POS() ] = 0;
+				   unpack_tag($ber);
+				   unpack_length($ber)
+				       + $ber->[ _POS() ];
+			       })) {
+		$n = $len;
+		last;
+	    }
+	    
+	    # peek some more
+	    $n <<= 1;
+	    recv($sock,$ber->[ _BUFFER() ],$n,Socket::MSG_PEEK());
+	    
+	    # if buffer length != $n we know the size
+	    last if ($n != CORE::length($ber->[ _BUFFER() ]));
+	}
+    }
 
     # now we know the size, get it again but without MSG_PEEK
     # this will cause the kernel to remove the datagram from it's queue
 
-    $sock->recv($ber->[ Convert::BER::_BUFFER() ],$n);
+    $ber->[ _POS() ] = 0;
+    $ber->[ _PEER() ] = 
+	recv($sock, $ber->[ _BUFFER() ],$n, 0);
 
     $ber;
 }
@@ -1447,6 +1546,219 @@ sub unpack {
     1;
 }
 
+##
+##
+##
+
+package Convert::BER::BIT_STRING8;
+
+sub pack {
+    my($self,$ber,$arg) = @_;
+
+    Convert::BER::pack_length($ber,CORE::length($arg)+1);
+    $ber->[ Convert::BER::_BUFFER() ] .= chr(0) . $arg;
+}
+
+sub unpack {
+    my($self,$ber,$arg) = @_;
+
+    my $len  = Convert::BER::unpack_length($ber);
+    my $less = Convert::BER::unpack($ber,1);
+    my $data = $len > 1 ? Convert::BER::unpack($ber,$len-1) : "";
+    $$arg = $data;
+    1;
+}
+
+##
+##
+##
+
+package Convert::BER::REAL;
+
+sub pack {
+  my($self,$ber,$arg) = @_;
+  require POSIX;
+  my $data = "";
+
+  if($arg) {
+    my $s = 128;
+    if($arg < 0) {
+      $s |= 64;
+      $arg = -$arg;
+    }
+    my @e = ();
+    my @m = ();
+    my($v,$e) = POSIX::frexp($arg);
+    $e -= 53;
+    my $ae = abs($e);
+
+    if($ae < 0x80) {
+      @e = ($e & 0xff);
+    }
+    elsif($ae < 0x8000) {
+      @e = map { $_ & 0xff } ($e>>8,$e);
+      $s |= 1;
+    }
+    elsif($ae < 0x800000) {
+      @e = map { $_ & 0xff } ($e>>16,$e>>8,$e);
+      $s |= 2;
+    }
+    else {
+      @e = (4, map { $_ & 0xff } ($e>>24,$e>>16,$e>>8,$e));
+      $s |= 3;
+    }
+
+    $v = POSIX::ldexp($v,5);
+    my $f = POSIX::floor($v);
+    my $i = int($f);
+    @m = ($i & 0xff);
+    $v -= $f;
+    for (1..2) {
+      $v = POSIX::ldexp($v,24);
+      $f = POSIX::floor($v);
+      $i = int($f);
+      push @m, ($i >> 16) & 0xff, ($i >> 8) & 0xff, $i & 0xff;
+      $v -= $f;
+    }
+    $data = pack("C*",$s,@e,@m);
+  }
+  my $len = length($data);
+  Convert::BER::pack_length($ber,$len);
+  Convert::BER::pack($ber,$data) if $len;
+}
+
+my @base = (1,3,4,4);
+
+sub unpack {
+  my($self,$ber,$arg) = @_;
+
+  my $len = Convert::BER::unpack_length($ber);
+  unless($len) {
+    $$arg = undef;
+    return 1;
+  }
+  my $data = Convert::BER::unpack($ber,$len);
+  my $byte = unpack("C*",$data);
+
+  if($byte & 0x80) {
+    $data = reverse $data;
+    chop($data);
+    require POSIX; # The sins for using REAL
+    my $base = $base[($byte & 0x30) >> 4];
+    my $scale = $base & 0xC;
+    my $elen = $byte & 0x3;
+ 
+    $elen = ord(chop($data)) - 1 if $elen == 3;
+
+    die "Bad REAL encoding" unless $elen >= 0 && $elen <= 3;
+
+    my $exp = ord chop($data);
+    $exp = -256 + $exp if $exp > 127;
+
+    while ($elen--) {
+      $exp *= 256;
+      $exp += ord chop($data);
+    }
+
+    $exp = $exp * $base + $scale;
+
+    my $v = 0;
+    while(length($data)) {
+      $v = POSIX::ldexp($v,8) + ord chop($data);
+    }
+
+    $v = POSIX::ldexp($v,$exp) if $exp;
+    $v = -1 * $v if $byte & 0x40; # negative
+
+    $$arg = $v;
+  }
+  elsif($byte & 0x40) {
+    require POSIX;
+    $$arg = POSIX::HUGE_VAL() * (($byte & 1) ? -1 : 1);
+  }
+  elsif(substr($data,1) =~ /^\s*([-+]?)0*(\d+(?:\.\d+(?:[Ee][-+]?\d+)?)?)\s*$/) {
+    $$arg = eval "$1$2";
+  }
+  else {
+    $$arg = undef;
+  }
+  1;
+}
+
+##
+##
+##
+
+package Convert::BER::_Time_generic;
+
+sub pack {
+    my($self,$ber,$arg) = @_;
+
+    my $islocal = $self->isa('Convert::BER::TimeUL')
+		|| $self->isa('Convert::BER::TimeGL');
+    my $isgen = $self->isa('Convert::BER::TimeGL')
+		|| $self->isa('Convert::BER::TimeGZ');
+    my @time = $islocal ? localtime($arg) : gmtime($arg);
+    my $off = 'Z';
+
+    if($islocal) {
+      my @g = gmtime($arg);
+      my $v = ($time[1] - $g[1]) + ($time[2] - $g[2]) * 60;
+      my $d = $time[7] - $g[7];
+      if($d == 1 || $d < -1) {
+	$v += 1440;
+      }
+      elsif($d > 1) {
+	$v -= 1440;
+      }
+      $off = sprintf("%+03d%02d",$v / 60, abs($v % 60));
+    }
+    
+    $time[4] += 1;
+    $time[5] = $isgen ? $time[5] + 1900 : $time[5] % 100;
+    my $str = sprintf("%02d"x6, @time[5,4,3,2,1,0]);
+    if($isgen) {
+      my $split = $arg - int($arg);
+      $str .= sprintf(".%03d", int($split * 1000)) if($split);
+    }
+    Convert::BER::STRING::pack($self,$ber,$str . $off);
+}
+
+sub unpack {
+    my($self,$ber,$arg) = @_;
+    my $str;
+    if(Convert::BER::STRING::unpack($self,$ber,\$str)) {
+      my $isgen = $self->isa('Convert::BER::TimeGL')
+		|| $self->isa('Convert::BER::TimeGZ');
+      my $n = $isgen ? 4 : 2;
+      my ($Y,$M,$D,$h,$m,$s,$z) = $str =~ /^
+        (\d{$n})
+	(\d\d)
+	(\d\d)
+	(\d\d)
+	(\d\d)
+	((?:\d\d(?:\.\d+)?)?)
+	(Z|[-+]\d{4})
+      $/x or die "Bad Time string '$str'";
+      my $offset = 0;
+      if($z ne 'Z') {
+        use integer;
+	$offset = ((($z / 100) * 60) + ($z % 100)) * 60;
+      }
+      if($s > int($s)) { # fraction of a seccond
+        $offset -= ($s - int($s));
+      }
+      $M -= 1;
+      if($isgen) {	# GeneralizedTime uses 4-digit years
+	$Y -= 1900;
+      }
+      elsif($Y <= 50) {	# ASN.1 UTCTime
+	$Y += 100;	# specifies <=50 = 2000..2050, >50 = 1951..1999
+      }
+      require Time::Local;
+      $$arg = Time::Local::timegm(int($s),$m,$h,$D,$M,$Y) - $offset;
+    }
+}
 
 
 1;

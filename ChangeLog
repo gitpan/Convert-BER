@@ -1,4 +1,34 @@
-*** Release 1.23
+Change 246 on 1999/02/04 by <gbarr@pobox.com> (Graham Barr)
+
+	fixed read() to loop on sysread() until the correct number
+	of bytes are read
+
+Change 241 on 1998/12/23 by <gbarr@pobox.com> (Graham Barr)
+
+	- made error from ->read() more descrptive
+	- added t/07io.t
+	- added new types as sub-type of STRING
+	   ObjectDescriptor,	UTF8String,	NumericString,
+	   PrintableString	TeletexString,	T61String,
+	   VideotexString,	IA5String,	GraphicString,
+	   VisibleString,	ISO646String,	GeneralString,
+	   UTCTime,		GeneralizedTime
+	- added special time tags TimeUL TimeUZ TimeGL TimeGZ
+	- added BIT_STRING8 a special BIT_STRING that can only deal with
+	  multiples of 8 the data is passed directlry, not as a string of
+	  '1's and '0's like BIT_STRING
+	- added SET_OF as sub-type of SEQUENCE_OF
+	- enhanced IO routines for better performance
+	- protected eval{}'s against $SIG{__DIE__}
+
+Change 233 on 1998/11/09 by <gbarr@pobox.com> (Graham Barr)
+
+	Now created constant subs in the sub-class package for the tag
+	values and adds them to EXPORT_OK
+
+Change 227 on 1998/11/04 by <gbarr@pobox.com> (Graham Barr)
+
+	- local($SIG{__DIE__}) when using eval/die
 
 Change 233 on 1998/11/09 by <gbarr@pobox.com> (Graham Barr)
 

@@ -11,3 +11,4 @@ t/03seqof.t
 t/04comp.t
 t/05class.t
 t/06opt.t
+t/07io.t
