@@ -1,3 +1,25 @@
+Tue Jun 16 1998 <gbarr@pobox.com> (Graham Barr)
+
+	t/00prim.t
+	- tweak to ensure test runs on the Mac
+
+Mon Jun  8 1998 <gbarr@pobox.com> (Graham Barr)
+
+	Added some tests to t/00prim.t
+	
+	Changed date in pod
+
+Sun Jun  7 1998 <gbarr@pobox.com> (Graham Barr)
+
+	more speed improvements, approx 30% faster encode
+	- changed to use an array instead of hash
+	- new num_length
+	- new pack_tag
+	- inlines some internal method calls
+
+
+	- speedup changes to num_length
+
 Sun Nov 30 1997 <gbarr@pobox.com> (Graham Barr)
 
 	- unpack_tag was not checking that it unpacked what was expected

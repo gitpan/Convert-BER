@@ -126,7 +126,8 @@ my %INTEGER = (
     -457	=> pack("C*", 0x02, 0x02, 0xFE, 0x37),
 );
 
-while(($val,$result) = each %INTEGER) {
+while(($v,$result) = each %INTEGER) {
+    $val = eval($v);
     print "# INTEGER $val\n";
 
     $tcount += 5;
@@ -247,7 +248,8 @@ my %ENUM = (
     6573456	=> pack("C*", 0x0A, 0x03, 0x64, 0x4D, 0x90),
 );
 
-while(($val,$result) = each %ENUM) {
+while(($v,$result) = each %ENUM) {
+    $val = eval($v);
     print "# ENUM $val\n";
 
     $tcount += 5;
