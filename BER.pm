@@ -12,7 +12,7 @@ use strict;
 use vars qw($VERSION @ISA @EXPORT_OK);
 
 BEGIN {
-    $VERSION = "1.26";
+    $VERSION = "1.28";
 
     @ISA = qw(Exporter);
     
@@ -738,7 +738,7 @@ TAG:
 		while(CORE::length($ber->[ Convert::BER::_BUFFER() ]) > $ber->[ Convert::BER::_POS() ]) {
 		    if(defined $tag) {
 			next TAG
-			    unless unpack_tag($ber,$tag);
+			    unless eval { unpack_tag($ber,$tag) };
 		    }
 
 		    push @$arg, undef;
@@ -890,8 +890,16 @@ sub write {
 sub send {
     my $ber = shift;
     my $sock = shift;
-    @_ ? send($sock,$ber->[ _BUFFER() ],0,$_[0])
-       : send($sock,$ber->[ _BUFFER() ],0);
+    
+    local($SIG{'__DIE__'});
+
+    eval {
+	# Enable reporting a 'Broken pipe' error rather than dying.
+	local ($SIG{PIPE}) = "IGNORE";
+
+	@_ ? send($sock,$ber->[ _BUFFER() ],0,$_[0])
+           : send($sock,$ber->[ _BUFFER() ],0);
+    } or die "I/O Error: $!";
 }
 
 sub recv {
@@ -900,6 +908,8 @@ sub recv {
 
     require Socket; # for Socket::MSG_PEEK
 
+    local $SIG{'__DIE__'};
+
     $ber = $ber->new unless ref($ber);
     $ber->[ _BUFFER() ] = "";
 
@@ -907,46 +917,65 @@ sub recv {
     # is there an easier way to determine the packet size ??
 
     my $n = 128;
-    recv($sock,$ber->[ _BUFFER() ],$n,Socket::MSG_PEEK());
+    die "I/O Error: $!" 
+	unless ((defined recv($sock,$ber->[ _BUFFER() ],$n,Socket::MSG_PEEK()))
+		and not $!);
 
-    # If the packet is bigger than $n the buffer size will == $n
-    if($n == CORE::length($ber->[ _BUFFER() ])) {
-	my $len;
+    # PEEK until we have the complete tag and length of the BER
+    # packet. Use the length to determine how much data to read from
+    # the socket. This is an attempt to ensure that we read the
+    # entire packet and that we don't read into the next packet, if
+    # there is one.
+
+    my $len;
+    
+    # Keep reading until we've read enough of the packet to unpack
+    # the BER length field.
+    for(;;) {
+
+	# If we can decode a tag and length we can detemine the length
 	
-	local $SIG{'__DIE__'};
-
-	for(;;) {
-
-	    # If we can decode a tag and length we can detemine the length
-	    if(defined($len = eval {
-				   $ber->[ _POS() ] = 0;
-				   unpack_tag($ber);
-				   unpack_length($ber)
-				       + $ber->[ _POS() ];
-			       })
-		# unpack_length will return -1 for unknown length
-		&& $len >= $ber->[ _POS() ]) {
-
-		$n = $len;
-		last;
-	    }
+	if(defined($len = eval {
+	    $ber->[ _POS() ] = 0;
+	    unpack_tag($ber);
+	    unpack_length($ber)
+		+ $ber->[ _POS() ];
+  	         })
+	   # unpack_length will return -1 for unknown length
+	   && $len >= $ber->[ _POS() ]) {
 	    
-	    # peek some more
-	    $n <<= 1;
-	    recv($sock,$ber->[ _BUFFER() ],$n,Socket::MSG_PEEK());
-	    
-	    # if buffer length != $n we know the size
-	    last if ($n != CORE::length($ber->[ _BUFFER() ]));
+	    $n = $len;
+	    last;
 	}
-    }
 
+	# peek some more
+	$n <<= 1;
+	die "I/O Error: $!" 
+	    unless ((defined recv($sock,$ber->[ _BUFFER() ],$n,Socket::MSG_PEEK()))
+		    and not $!);
+    }
+    
     # now we know the size, get it again but without MSG_PEEK
     # this will cause the kernel to remove the datagram from it's queue
 
+    # If the data on the socket doesn't correspond to a valid BER
+    # object, the loop above could have read something it thought was
+    # the length and this loop could then block waiting for that many
+    # bytes, which will never arrive. What do you do about something
+    # like that?
+    
     $ber->[ _POS() ] = 0;
-    $ber->[ _PEER() ] = 
-	recv($sock, $ber->[ _BUFFER() ],$n, 0);
-
+    $ber->[ _BUFFER() ] = "";
+    my ($read, $tmp);
+    $read = 0;
+    while ($read < $n) {
+	$ber->[ _PEER() ] = recv($sock, $tmp, $n - $read, 0);
+	die "I/O Error: $!" 
+	    unless ((defined ( $ber->[ _PEER() ] ) and not $!));
+	
+	$read += CORE::length($tmp);
+	$ber->[ _BUFFER() ] .= $tmp;
+    }
     $ber;
 }
 
@@ -1378,7 +1407,7 @@ sub unpack {
 	my $first = shift @data;
 	unshift @data, $first % 40;
 	unshift @data, int($first / 40);
-	unshift @data, "";
+#	unshift @data, "";
     }
     $$arg = join(".",@data);
     1;

@@ -1,0 +1,10 @@
+<SOFTPKG NAME="Convert-BER" VERSION="1,28,0,0">
+	<TITLE>Convert-BER</TITLE>
+	<ABSTRACT>Error/exception handling in an OO-ish way</ABSTRACT>
+	<AUTHOR>Graham Barr &lt;gbarr@pobox.com&gt;</AUTHOR>
+	<IMPLEMENTATION>
+		<OS NAME="linux" />
+		<ARCHITECTURE NAME="i586-linux" />
+		<CODEBASE HREF="" />
+	</IMPLEMENTATION>
+</SOFTPKG>

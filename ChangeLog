@@ -1,3 +1,29 @@
+Change 438 on 2000/03/29 by <gbarr@pobox.com> (Graham Barr)
+
+	PPD stuff added to Makefile.PL
+
+Change 433 on 2000/03/29 by <gbarr@pobox.com> (Graham Barr)
+
+	POD updates from Chris Ridd <Chris.Ridd@messagingdirect.com>
+
+Change 421 on 2000/03/28 by <gbarr@pobox.com> (Graham Barr)
+
+	OBJ_ID had an extra .
+
+Change 338 on 1999/09/25 by <gbarr@pobox.com> (Graham Barr)
+
+	Applied patch from  Gennis Emerson <gemerson@vizdom.com> 
+	- doc updates
+	- fixes to snd/recv
+
+Change 336 on 1999/09/24 by <gbarr@pobox.com> (Graham Barr)
+
+	- Fix for unpacking into an array
+
+Change 295 on 1999/04/08 by <gbarr@pobox.com> (Graham Barr)
+
+	Release 1.26
+
 Change 279 on 1999/03/26 by <gbarr@pobox.com> (Graham Barr)
 
 	Applied a readability patch from Gisle Aas

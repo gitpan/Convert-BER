@@ -1,39 +1,33 @@
 # This -*- perl -*- script makes the Makefile
-# $Id: Makefile.PL,v 1.3 1997/03/19 20:20:15 gbarr Exp $
+# $Id: //depot/ber/Makefile.PL#4 $
 
 use 5.004;
 use ExtUtils::MakeMaker;
 
-#--- MY package
+my @ppd;
 
-sub MY::libscan
-{
- my($self,$path) = @_;
-
- return '' 
-	if($path =~ m:/(RCS|CVS|SCCS)/: ||
-	   $path =~ m:[~%]$: ||
-	   $path =~ m:\.(orig|rej|nfs[A-F0-9]+|b[ac]k)$:
-	  );
- 
- $path;
+if ($] >= 5.00503) {
+  @ppd = (
+    AUTHOR    => 'Graham Barr <gbarr@pobox.com>',
+    ABSTRACT  => 'Error/exception handling in an OO-ish way'
+  );
 }
 
-#--- Write the Makefile
-
-my @clean = qw(*% *.html *.b[ac]k *.old);
-
-push @clean, map { "*/$_" } @clean;
-
 WriteMakefile(
-    VERSION_FROM  => 'BER.pm',
-    NAME          => 'Convert::BER',
-    'dist'        => {
-	              COMPRESS     => 'gzip -9f',
-	              SUFFIX	   => '.gz',
-	              DIST_DEFAULT => 'all tardist',
-	             },
-
-    'clean'       => {FILES => join(" ", @clean)},
+  VERSION_FROM  => 'BER.pm',
+  NAME          => 'Convert::BER',
+  @ppd
 );
+
+sub MY::postamble {
+
+  return '' unless $] >= 5.00503;
+
+<<'ESQ';
+
+dist : ppd
+
+ESQ
+}
+
 

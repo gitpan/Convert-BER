@@ -1,9 +1,10 @@
+BER.pm
+BER.pod
 ChangeLog
+Convert-BER.ppd
 MANIFEST
 Makefile.PL
 README
-BER.pm
-BER.pod
 t/00prim.t
 t/01basic.t
 t/02seq.t
