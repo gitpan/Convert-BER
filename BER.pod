@@ -158,7 +158,8 @@ A set it treated in an identical way to a SEQUENCE.
 =item BER
 
 B<Encode>: I<value> should be a C<Convert::BER> object, which will
-be inserted into the buffer
+be inserted into the buffer. If I<value> is undefined then nothing
+is added.
 
 B<Decode>: I<value> should be a reference to a scalar, which will
 contain a C<Convert::BER> object. This object will contain the
@@ -173,7 +174,8 @@ decoded and placed into the C<Convert::BER> object returned.
 
 The I<value> to this operator must be a reference to an I<opList>.
 
-B<Encode>: The contents I<value> are encoded into the buffer.
+B<Encode>: The contents I<value> are encoded into the buffer, providing
+no entry in the list is undefined.
 
 B<Decode>: The contents of I<value> are decoded if possible, if
 not then decode continues at the next I<operator>-I<value> pair.

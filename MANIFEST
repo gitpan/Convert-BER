@@ -1,5 +1,5 @@
+ChangeLog
 MANIFEST
-MANIFEST.SKIP
 Makefile.PL
 README
 BER.pm
@@ -10,4 +10,4 @@ t/02seq.t
 t/03seqof.t
 t/04comp.t
 t/05class.t
-ChangeLog
+t/06opt.t

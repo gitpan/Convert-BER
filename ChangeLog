@@ -1,3 +1,15 @@
+Change 192 on 1998/09/26 by <gbarr@pobox.com> (Graham Barr)
+
+	- OPTIONAL can now optianlly encode, passing undef anywhere in the
+	  opList will cause the whole list not to be encoded
+	
+	- BER will no longer complain if passed undef as an argument, it
+	  will just do nothing.
+
+Change 174 on 1998/07/21 by <gbarr@pobox.com> (Graham Barr)
+
+	Added CORE:: prefixes to keep 5.005-beta quiet
+
 Tue Jun 16 1998 <gbarr@pobox.com> (Graham Barr)
 
 	t/00prim.t
