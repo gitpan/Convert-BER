@@ -12,7 +12,11 @@ use strict;
 use vars qw($VERSION @ISA @EXPORT_OK);
 
 BEGIN {
-    $VERSION = "1.28";
+    if ($] >= 5.006) {
+	require bytes; 'bytes'->import;
+    }
+
+    $VERSION = "1.29";
 
     @ISA = qw(Exporter);
     

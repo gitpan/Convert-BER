@@ -1,5 +1,5 @@
 # This -*- perl -*- script makes the Makefile
-# $Id: //depot/ber/Makefile.PL#4 $
+# $Id: //depot/ber/Makefile.PL#5 $
 
 use 5.004;
 use ExtUtils::MakeMaker;
@@ -9,7 +9,7 @@ my @ppd;
 if ($] >= 5.00503) {
   @ppd = (
     AUTHOR    => 'Graham Barr <gbarr@pobox.com>',
-    ABSTRACT  => 'Error/exception handling in an OO-ish way'
+    ABSTRACT  => 'Encode/decoing of ASN.1 usinf BER rules'
   );
 }
 

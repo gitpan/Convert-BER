@@ -1,5 +1,11 @@
 #!/usr/local/bin/perl
 
+BEGIN {
+  if ($] >= 5.006) {
+    require bytes; 'bytes'->import;
+  }
+}
+
 #
 # Test that the primitive operators are working
 #

@@ -1,3 +1,16 @@
+Change 462 on 2000/03/29 by <gbarr@pobox.com> (Graham Barr)
+
+	added C<use bytes> for perl 5.6 and later
+
+Change 459 on 2000/03/29 by <gbarr@pobox.com> (Graham Barr)
+
+	Makefile.PL
+	- Corrected ABSTRACT
+
+Change 439 on 2000/03/29 by <gbarr@pobox.com> (Graham Barr)
+
+	Release 1.28
+
 Change 438 on 2000/03/29 by <gbarr@pobox.com> (Graham Barr)
 
 	PPD stuff added to Makefile.PL
