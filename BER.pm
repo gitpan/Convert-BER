@@ -16,7 +16,7 @@ BEGIN {
 	require bytes; 'bytes'->import;
     }
 
-    $VERSION = "1.30";
+    $VERSION = "1.31";
 
     @ISA = qw(Exporter);
     
@@ -331,24 +331,24 @@ sub unpack {
 
 sub pack_tag {
     my($ber,$tag) = @_;
-
+    
     # small tag number are more common, so check $tag size in reverse order
-    unless($tag & ~0xff) {
+    unless(($tag & 0x1f) == 0x1f) {
 	$ber->[ Convert::BER::_BUFFER() ] .= chr( $tag );
-	return 1;
+        return 1;
     }
 
-    unless($tag & ~0xffff) {
-	$ber->[ Convert::BER::_BUFFER() ] .= CORE::pack("n",$tag);
+    unless($tag & ~0x7fff) {
+        $ber->[ Convert::BER::_BUFFER() ] .= CORE::pack("v",$tag);
 	return 2;
     }
 
-    unless($tag & ~0xffffff) {
-	$ber->[ Convert::BER::_BUFFER() ] .= CORE::pack("nc",($tag >> 8),$tag);
+    unless($tag & ~0x7fffff) {
+        $ber->[ Convert::BER::_BUFFER() ] .= CORE::pack("vc",$tag, ($tag >> 16));
 	return 3;
     }
 
-    $ber->[ Convert::BER::_BUFFER() ] .= CORE::pack("N",$tag);
+    $ber->[ Convert::BER::_BUFFER() ] .= CORE::pack("V",$tag);
     return 4;
 }
 
@@ -358,23 +358,26 @@ sub unpack_tag {
     my $len = CORE::length($ber->[ Convert::BER::_BUFFER() ]);
 
     die "Buffer empty"
-	if($pos >= $len);
+        if($pos >= $len);
 
-    my $tag = CORE::unpack("C",substr($ber->[ Convert::BER::_BUFFER() ],$pos++,1));
+    my $tag = CORE::unpack("C",substr($ber->[ Convert::BER::_BUFFER() ],$pos++,1
+));
 
     if(($tag & 0x1f) == 0x1f) {
-	my $b;
+        my $b;
+        my $s = 8;
 
-	do {
-	    die "Buffer empty"
-		if($pos >= $len);
-	    $b = CORE::unpack("C",substr($ber->[ Convert::BER::_BUFFER() ],$pos++,1));
-	    $tag = ($tag << 7) | ($b & 0x7f);
-	} while($b & 0x80);
+        do {
+            die "Buffer empty"
+                if($pos >= $len);
+            $b = CORE::unpack("C",substr($ber->[ Convert::BER::_BUFFER() ],$pos++,1));
+            $tag |= $b << $s;
+            $s += 8;
+        } while($b & 0x80);
     }
 
     die sprintf("Expecting tag 0x%x, found 0x%x",$expect,$tag)
-	if(defined($expect) && ($tag != $expect));
+        if(defined($expect) && ($tag != $expect));
 
     $ber->[ Convert::BER::_POS() ] = $pos;
 
@@ -395,6 +398,8 @@ sub pack_length {
     $ber->[ Convert::BER::_BUFFER() ] .= CORE::pack("C", $len);
     return 1;
 }
+
+
 
 sub unpack_length {
     my $ber = shift;
@@ -553,8 +558,22 @@ sub dump {
     my $label = $type{sprintf("%02X",$tag & ~0x20)}
 		|| $type{sprintf("%02X",$tag & 0xC0)}
 		|| "UNIVERSAL [%d]";
-    printf $label, $tag & ~0xE0;
 
+    if (($tag & 0x1f) == 0x1f) {
+      my $k = $tag >> 8;
+      my $j = 0;
+      while($k) {
+        $j = ($j << 7) | ($k & 0x7f);
+       $k >>= 8;
+      }
+      my $l = $label;
+      $l =~ s/%d/0x%x/;
+      printf $l, $j;
+    }
+    else {
+      printf $label, $tag & ~0xE0;
+    }
+ 
     if ($tag & BER_CONSTRUCTOR) {
       print " {\n";
       if($len < 0) {

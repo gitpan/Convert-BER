@@ -14,3 +14,4 @@ t/05class.t
 t/06opt.t
 t/07io.t
 t/08tag.t
+t/09hightags.t
