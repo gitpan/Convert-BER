@@ -28,6 +28,8 @@ Convert::BER - ASN.1 Basic Encoding Rules
 
 =head1 DESCRIPTION
 
+B<WARNING> this module is no longer supported, See L<Convert::ASN1>
+
 C<Convert::BER> provides an OO interface to encoding and decoding data
 using the ASN.1 Basic Encoding Rules (BER), a platform independent way
 of encoding structured binary data together with the structure.

@@ -1,3 +1,6 @@
+1.32 -- Wed Oct 21 20:29:30 CDT 2009
+  * remove label INIT, not valid as of 5.11.0
+
 Change 739 on 2002/08/19 by <gbarr@pobox.com> (Graham Barr)
 
 	Dont generate PPD

@@ -16,7 +16,7 @@ BEGIN {
 	require bytes; 'bytes'->import;
     }
 
-    $VERSION = "1.31";
+    $VERSION = "1.32";
 
     @ISA = qw(Exporter);
     
@@ -118,7 +118,7 @@ sub _PACK_ARRAY   () { 3 }
 sub _UNPACK       () { 4 }
 sub _UNPACK_ARRAY () { 5 }
 
-INIT: {
+{
   Convert::BER->define(
     ##
     ## Syntax operator
